@@ -1,0 +1,90 @@
+#!/usr/bin/env ruby
+# frozen_string_literal: true
+
+#
+# scripts/goal-spot-check - Approve or reject a goal after review
+#
+# Usage: goal-spot-check <id> approve
+#        goal-spot-check <id> reject --feedback "..."
+#
+# Output: JSON {"ok": true}
+# Exit code: 0 on success, 1 on failure
+#
+
+require 'json'
+require 'net/http'
+require 'optparse'
+
+RALPH_PLANS_HOST = ENV.fetch('RALPH_PLANS_HOST')
+RALPH_PLANS_PORT = ENV.fetch('RALPH_PLANS_PORT')
+
+def main
+  feedback = nil
+
+  OptionParser.new do |opts|
+    opts.banner = <<~HELP
+      Usage: goal-spot-check <id> approve
+             goal-spot-check <id> reject --feedback "..."
+
+      Approve or reject a pipeline goal after human review.
+
+      Arguments:
+        id        Goal ID (required)
+        action    One of: approve, reject (required)
+
+      Flags:
+        --feedback "..."    Reason for rejection (required with reject)
+
+      What it does:
+        approve: Transitions reviewing → done.
+        reject:  Transitions reviewing → queued, posts feedback as comment.
+
+      Examples:
+        goal-spot-check 42 approve
+        goal-spot-check 42 reject --feedback "Widget doesn't render"
+    HELP
+
+    opts.on('--feedback=TEXT', 'Reason for rejection') { |f| feedback = f }
+  end.parse!
+
+  id = ARGV[0]&.to_i
+  action = ARGV[1]
+
+  unless id && id > 0
+    puts JSON.generate(ok: false, error: 'goal id is required')
+    exit 1
+  end
+
+  unless %w[approve reject].include?(action)
+    puts JSON.generate(ok: false, error: 'action must be approve or reject')
+    exit 1
+  end
+
+  if action == 'reject' && (feedback.nil? || feedback.empty?)
+    puts JSON.generate(ok: false, error: '--feedback is required with reject')
+    exit 1
+  end
+
+  uri = URI("http://#{RALPH_PLANS_HOST}:#{RALPH_PLANS_PORT}/goals/#{id}/review")
+  payload = { action: action }
+  payload[:feedback] = feedback if action == 'reject'
+
+  req = Net::HTTP::Patch.new(uri, 'Content-Type' => 'application/json')
+  req.body = JSON.generate(payload)
+  resp = Net::HTTP.start(uri.hostname, uri.port) { |http| http.request(req) }
+  result = JSON.parse(resp.body)
+
+  puts JSON.generate(result)
+  exit(result['ok'] ? 0 : 1)
+rescue Errno::ECONNREFUSED
+  puts JSON.generate(ok: false, error: "cannot connect to ralph-plans at #{RALPH_PLANS_HOST}:#{RALPH_PLANS_PORT}")
+  exit 1
+end
+
+if __FILE__ == $PROGRAM_NAME
+  begin
+    main
+  rescue Interrupt
+    exit 130
+  end
+end
