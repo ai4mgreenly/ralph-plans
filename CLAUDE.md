@@ -16,4 +16,4 @@ Skillsets are composite bundles of skills defined in `.claude/skillsets/<name>.j
 
 ### Available skillsets
 
-- `meta` - For improving the .claude/ system (jj)
+- `meta` - For improving the .claude/ system (preloads: jj, pipeline, goal-authoring, align)

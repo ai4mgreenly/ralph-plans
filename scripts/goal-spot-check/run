@@ -2,9 +2,10 @@
 # frozen_string_literal: true
 
 #
-# scripts/goal-spot-check - Approve or reject a goal after review
+# scripts/goal-spot-check - Set, approve, or reject a goal review
 #
-# Usage: goal-spot-check <id> approve
+# Usage: goal-spot-check <id> set
+#        goal-spot-check <id> approve
 #        goal-spot-check <id> reject --feedback "..."
 #
 # Output: JSON {"ok": true}
@@ -23,23 +24,26 @@ def main
 
   OptionParser.new do |opts|
     opts.banner = <<~HELP
-      Usage: goal-spot-check <id> approve
+      Usage: goal-spot-check <id> set
+             goal-spot-check <id> approve
              goal-spot-check <id> reject --feedback "..."
 
-      Approve or reject a pipeline goal after human review.
+      Manage review state for a pipeline goal.
 
       Arguments:
         id        Goal ID (required)
-        action    One of: approve, reject (required)
+        action    One of: set, approve, reject (required)
 
       Flags:
         --feedback "..."    Reason for rejection (required with reject)
 
       What it does:
+        set:     Transitions running → reviewing.
         approve: Transitions reviewing → done.
         reject:  Transitions reviewing → queued, posts feedback as comment.
 
       Examples:
+        goal-spot-check 42 set
         goal-spot-check 42 approve
         goal-spot-check 42 reject --feedback "Widget doesn't render"
     HELP
@@ -55,8 +59,8 @@ def main
     exit 1
   end
 
-  unless %w[approve reject].include?(action)
-    puts JSON.generate(ok: false, error: 'action must be approve or reject')
+  unless %w[set approve reject].include?(action)
+    puts JSON.generate(ok: false, error: 'action must be set, approve, or reject')
     exit 1
   end
 

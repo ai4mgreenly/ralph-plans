@@ -1,0 +1,19 @@
+#!/bin/bash
+set -euo pipefail
+
+# Reset jj working copy to fresh state from main@origin
+#
+# 1. Fetch latest from remote
+# 2. Create new working copy from main@origin
+# 3. Delete all bookmarks except main
+
+jj git fetch
+jj new main@origin
+
+jj bookmark list --template 'name ++ "\n"' | while read -r name; do
+  [ -z "$name" ] && continue
+  [ "$name" = "main" ] && continue
+  jj bookmark forget "$name"
+done
+
+echo 'Reset complete.'

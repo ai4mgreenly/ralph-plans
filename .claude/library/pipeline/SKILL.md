@@ -1,87 +1,104 @@
 ---
 name: pipeline
-description: ralph-plans goal pipeline scripts
+description: Pipeline commands for creating and managing goals
 ---
 
 # Pipeline
 
-## Deriving Parameters
+Autonomous development pipeline. Goals are executable units of work. Ralph (the agent loop) picks up queued goals, executes them in isolated clones, and creates pull requests from the results. All goal scripts return JSON (`{"ok": true/false, ...}`).
 
-- **org**: Parse from the git remote origin URL. Run `git remote get-url origin` and extract the org/user segment (e.g. `git@github.com:ai4mgreenly/ralph-plans.git` → `ai4mgreenly`).
-- **repo**: The target repository for the goal (passed explicitly).
-
-## Scripts
-
-All scripts are in `scripts/` and require `RALPH_PLANS_HOST` and `RALPH_PLANS_PORT` environment variables.
-
-### goal-create
-
-Create a goal. Body is read from stdin.
+## Flow
 
 ```
-echo "body" | goal-create --title "..." --org ORG --repo REPO [--review]
+Human writes goal → goal-create (draft) → goal-queue (queued) → Ralph executes → PR merges
 ```
 
-### goal-get
+## Default Workflow: Goals-First
 
-Read a single goal.
+**The goals-first workflow is the default for all work.** Local changes are rare exceptions that require explicit user instruction.
 
+**Standard workflow:**
+
+1. **Discuss** — User and Claude discuss the change and approach
+2. **Create goal** — Claude creates the goal with clear acceptance criteria
+3. **Queue immediately** — Goal is queued right after creation (default behavior)
+4. **Ralph executes** — The orchestrator picks up the goal and runs it autonomously
+5. **PR merges** — Completed work is merged via PR
+
+**Default behaviors:**
+
+- **Always queue after creation** — No manual testing or "trying it first" unless user explicitly requests it
+- **No local changes** — Claude does not make local changes directly; work goes through Ralph
+
+**When to make local changes (exceptions only):**
+
+- User explicitly requests direct changes: "make this change now", "edit this file", "fix this directly"
+- User explicitly says: "don't create a goal for this", "do this locally", "make this change here"
+
+**If unsure:** Default to creating and queuing a goal. The user will specify if they want an exception.
+
+## Goal Statuses
+
+`draft` → `queued` → `running` → `done` (or `stuck` or `reviewing`)
+
+## Goal Commands
+
+| Command | Usage | Does |
+|---------|-------|------|
+| `goal-create` | `--title "..." --org ORG --repo REPO [--review] < body.md` | Create goal (draft). Body via stdin. |
+| `goal-list` | `[--status STATUS] [--org ORG] [--repo REPO]` | List goals, optionally filtered |
+| `goal-get` | `<id>` | Read goal body + status |
+| `goal-queue` | `<id>` | Transition draft → queued |
+| `goal-cancel` | `<id>` | Cancel a non-terminal goal |
+| `goal-spot-check` | `<id> set\|approve\|reject [--feedback "..."]` | Manage review state |
+
+## Creating a Goal
+
+```bash
+cat <<'EOF' | goal-create --title "Add feature X" --org myorg --repo myrepo
+## Objective
+What should be accomplished.
+
+## Reference
+Relevant files, docs, and examples.
+
+## Outcomes
+Measurable, verifiable results.
+
+## Acceptance
+Success criteria.
+EOF
 ```
-goal-get <id>
-```
 
-### goal-list
+Then queue it:
 
-List goals with optional filters.
-
-```
-goal-list [--status STATUS] [--org ORG] [--repo REPO]
-```
-
-Statuses: draft, queued, running, reviewing, done, stuck, cancelled
-
-### goal-queue
-
-Move a goal from draft to queued (makes it available to the orchestrator).
-
-```
+```bash
 goal-queue <id>
 ```
 
-### goal-retry
+## Review Goals
 
-Requeue a stuck goal for retry (stuck → queued).
+**Never add `--review` unless the user explicitly requests it.** The default is auto-merge. Only the user decides when a goal needs human review — do not add `--review` based on your own judgment about risk or complexity.
 
-```
-goal-retry <id>
-```
+Pass `--review` to `goal-create` to require human review before the goal is marked done. After Ralph finishes, the goal enters `reviewing` state instead of `done`.
 
-### goal-comment
-
-Append a comment to a goal. Body from stdin.
-
-```
-echo "comment text" | goal-comment <id>
+```bash
+goal-spot-check <id> approve           # reviewing → done
+goal-spot-check <id> reject --feedback "Widget doesn't render"  # reviewing → queued (retries)
 ```
 
-### goal-spot-check
+## Goal Authoring
 
-Approve or reject a goal in reviewing state.
+Goal bodies **must** follow the `goal-authoring` skill guidelines (`/load goal-authoring`). Key rules:
 
-```
-goal-spot-check <id> approve
-goal-spot-check <id> reject --feedback "..."
-```
+- Specify **WHAT**, never **HOW** — outcomes, not steps
+- Reference relevant files — Ralph reads them across iterations
+- Include measurable **acceptance criteria**
+- Never pre-discover work (no specific line numbers or code snippets)
+- Trust Ralph to iterate and discover the path
 
-## Status Lifecycle
+## Key Rules
 
-```
-draft → queued → running → done
-                    ↓
-                  stuck → queued (via retry)
-                    ↓
-                running → reviewing → done (via approve)
-                                    → queued (via reject)
-
-Any non-terminal state → cancelled
-```
+- **Body via stdin** — `goal-create` reads body from stdin
+- **org + repo required** — Every goal targets a specific GitHub org/repo
+- Goals go through Ralph — don't make local changes unless explicitly asked

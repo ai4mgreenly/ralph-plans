@@ -1,6 +1,9 @@
 {
   "preload": [
-    "jj"
+    "jj",
+    "pipeline",
+    "goal-authoring",
+    "align"
   ],
   "advertise": []
 }
