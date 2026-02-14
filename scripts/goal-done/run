@@ -7,7 +7,7 @@
 # Usage: goal-done <id>
 #
 # Output: JSON {"ok": true}
-# Exit code: 0 on success, 1 on failure (409 if review=true)
+# Exit code: 0 on success, 1 on failure
 #
 
 require 'json'
@@ -29,7 +29,6 @@ def main
 
       What it does:
         Transitions the goal from running to done.
-        Rejects with 409 if the goal has review=true (must go through reviewing).
 
       Output:
         JSON {"ok": true}

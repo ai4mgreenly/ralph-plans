@@ -6,7 +6,7 @@
 #
 # Reads goal body from stdin. Metadata via flags.
 #
-# Usage: goal-create --title "..." --org ORG --repo REPO [--review] < body.md
+# Usage: goal-create --title "..." --org ORG --repo REPO < body.md
 #
 # Output: JSON {"ok": true, "id": <goal-id>}
 # Exit code: 0 on success, 1 on failure
@@ -23,11 +23,10 @@ def main
   title = nil
   org = nil
   repo = nil
-  review = false
 
   OptionParser.new do |opts|
     opts.banner = <<~HELP
-      Usage: goal-create --title "..." --org ORG --repo REPO [--review] < body.md
+      Usage: goal-create --title "..." --org ORG --repo REPO < body.md
 
       Create a pipeline goal. Body is read from stdin.
 
@@ -35,20 +34,17 @@ def main
         --title "..."       Goal title (required)
         --org ORG           Organization (required)
         --repo REPO         Repository name (required)
-        --review            Flag goal for human review before done
 
       Output:
         JSON {"ok": true, "id": <goal-id>}
 
       Examples:
         echo "## Objective\\nDo the thing" | goal-create --title "Add X" --org mgreenly --repo ikigai
-        echo "## Objective\\nDo the thing" | goal-create --title "Add X" --org mgreenly --repo ikigai --review
     HELP
 
     opts.on('--title=TITLE', 'Goal title') { |t| title = t }
     opts.on('--org=ORG', 'Organization') { |o| org = o }
     opts.on('--repo=REPO', 'Repository name') { |r| repo = r }
-    opts.on('--review', 'Flag for human review') { review = true }
   end.parse!
 
   unless title
@@ -81,7 +77,7 @@ def main
 
   # POST to ralph-plans API
   uri = URI("http://#{RALPH_PLANS_HOST}:#{RALPH_PLANS_PORT}/goals")
-  payload = { org: org, repo: repo, title: title, body: body, review: review }
+  payload = { org: org, repo: repo, title: title, body: body }
 
   resp = Net::HTTP.post(uri, JSON.generate(payload), 'Content-Type' => 'application/json')
   result = JSON.parse(resp.body)

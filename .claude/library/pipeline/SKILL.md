@@ -39,18 +39,17 @@ Human writes goal → goal-create (draft) → goal-queue (queued) → Ralph exec
 
 ## Goal Statuses
 
-`draft` → `queued` → `running` → `done` (or `stuck` or `reviewing`)
+`draft` → `queued` → `running` → `done` (or `stuck`)
 
 ## Goal Commands
 
 | Command | Usage | Does |
 |---------|-------|------|
-| `goal-create` | `--title "..." --org ORG --repo REPO [--review] < body.md` | Create goal (draft). Body via stdin. |
+| `goal-create` | `--title "..." --org ORG --repo REPO < body.md` | Create goal (draft). Body via stdin. |
 | `goal-list` | `[--status STATUS] [--org ORG] [--repo REPO]` | List goals, optionally filtered |
 | `goal-get` | `<id>` | Read goal body + status |
 | `goal-queue` | `<id>` | Transition draft → queued |
 | `goal-cancel` | `<id>` | Cancel a non-terminal goal |
-| `goal-spot-check` | `<id> set\|approve\|reject [--feedback "..."]` | Manage review state |
 
 ## Creating a Goal
 
@@ -74,17 +73,6 @@ Then queue it:
 
 ```bash
 goal-queue <id>
-```
-
-## Review Goals
-
-**Never add `--review` unless the user explicitly requests it.** The default is auto-merge. Only the user decides when a goal needs human review — do not add `--review` based on your own judgment about risk or complexity.
-
-Pass `--review` to `goal-create` to require human review before the goal is marked done. After Ralph finishes, the goal enters `reviewing` state instead of `done`.
-
-```bash
-goal-spot-check <id> approve           # reviewing → done
-goal-spot-check <id> reject --feedback "Widget doesn't render"  # reviewing → queued (retries)
 ```
 
 ## Goal Authoring

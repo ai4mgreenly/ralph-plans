@@ -15,7 +15,6 @@ func registerRoutes(mux *http.ServeMux, db *sql.DB) {
 	mux.HandleFunc("PATCH /goals/{id}/start", handleStart(db))
 	mux.HandleFunc("PATCH /goals/{id}/done", handleDone(db))
 	mux.HandleFunc("PATCH /goals/{id}/stuck", handleStuck(db))
-	mux.HandleFunc("PATCH /goals/{id}/review", handleReview(db))
 	mux.HandleFunc("PATCH /goals/{id}/requeue", handleRequeue(db))
 	mux.HandleFunc("PATCH /goals/{id}/cancel", handleCancel(db))
 	mux.HandleFunc("POST /goals/{id}/comments", handleCreateComment(db))
@@ -48,11 +47,10 @@ func goalIDFromRequest(r *http.Request) (int64, error) {
 func handleCreateGoal(db *sql.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		var req struct {
-			Org    string `json:"org"`
-			Repo   string `json:"repo"`
-			Title  string `json:"title"`
-			Body   string `json:"body"`
-			Review bool   `json:"review"`
+			Org   string `json:"org"`
+			Repo  string `json:"repo"`
+			Title string `json:"title"`
+			Body  string `json:"body"`
 		}
 		if err := readJSON(r, &req); err != nil {
 			writeErr(w, 400, "invalid JSON")
@@ -62,7 +60,7 @@ func handleCreateGoal(db *sql.DB) http.HandlerFunc {
 			writeErr(w, 400, "org, repo, title, and body are required")
 			return
 		}
-		id, err := createGoal(db, req.Org, req.Repo, req.Title, req.Body, req.Review)
+		id, err := createGoal(db, req.Org, req.Repo, req.Title, req.Body)
 		if err != nil {
 			writeErr(w, 500, "failed to create goal")
 			return
@@ -95,7 +93,6 @@ func handleGetGoal(db *sql.DB) http.HandlerFunc {
 			"title":      g.Title,
 			"body":       g.Body,
 			"status":     g.Status,
-			"review":     g.Review,
 			"created_at": g.CreatedAt,
 			"updated_at": g.UpdatedAt,
 		})
@@ -174,111 +171,11 @@ func handleStart(db *sql.DB) http.HandlerFunc {
 }
 
 func handleDone(db *sql.DB) http.HandlerFunc {
-	return func(w http.ResponseWriter, r *http.Request) {
-		id, err := goalIDFromRequest(r)
-		if err != nil {
-			writeErr(w, 400, "invalid goal id")
-			return
-		}
-		g, err := getGoal(db, id)
-		if err == sql.ErrNoRows {
-			writeErr(w, 404, "goal not found")
-			return
-		}
-		if err != nil {
-			writeErr(w, 500, "failed to get goal")
-			return
-		}
-		if g.Review {
-			writeErr(w, 409, "goal has review=true; use /review endpoint")
-			return
-		}
-		if !canTransition(g.Status, "done") {
-			writeErr(w, 409, "cannot transition from "+g.Status+" to done")
-			return
-		}
-		if err := updateGoalStatus(db, id, g.Status, "done"); err != nil {
-			writeErr(w, 500, "failed to update status")
-			return
-		}
-		writeJSON(w, 200, map[string]any{"ok": true})
-	}
+	return transitionHandler(db, "running", "done")
 }
 
 func handleStuck(db *sql.DB) http.HandlerFunc {
 	return transitionHandler(db, "running", "stuck")
-}
-
-func handleReview(db *sql.DB) http.HandlerFunc {
-	return func(w http.ResponseWriter, r *http.Request) {
-		id, err := goalIDFromRequest(r)
-		if err != nil {
-			writeErr(w, 400, "invalid goal id")
-			return
-		}
-		var req struct {
-			Action   string `json:"action"`
-			Feedback string `json:"feedback"`
-		}
-		if err := readJSON(r, &req); err != nil {
-			writeErr(w, 400, "invalid JSON")
-			return
-		}
-
-		g, err := getGoal(db, id)
-		if err == sql.ErrNoRows {
-			writeErr(w, 404, "goal not found")
-			return
-		}
-		if err != nil {
-			writeErr(w, 500, "failed to get goal")
-			return
-		}
-
-		switch req.Action {
-		case "set":
-			if !g.Review {
-				writeErr(w, 409, "goal does not have review=true")
-				return
-			}
-			if g.Status != "running" {
-				writeErr(w, 409, "goal must be running to set reviewing")
-				return
-			}
-			if err := updateGoalStatus(db, id, "running", "reviewing"); err != nil {
-				writeErr(w, 500, "failed to update status")
-				return
-			}
-		case "approve":
-			if g.Status != "reviewing" {
-				writeErr(w, 409, "goal must be reviewing to approve")
-				return
-			}
-			if err := updateGoalStatus(db, id, "reviewing", "done"); err != nil {
-				writeErr(w, 500, "failed to update status")
-				return
-			}
-		case "reject":
-			if g.Status != "reviewing" {
-				writeErr(w, 409, "goal must be reviewing to reject")
-				return
-			}
-			if err := updateGoalStatus(db, id, "reviewing", "queued"); err != nil {
-				writeErr(w, 500, "failed to update status")
-				return
-			}
-			if req.Feedback != "" {
-				if _, err := createComment(db, id, req.Feedback); err != nil {
-					writeErr(w, 500, "status updated but failed to save feedback")
-					return
-				}
-			}
-		default:
-			writeErr(w, 400, "action must be set, approve, or reject")
-			return
-		}
-		writeJSON(w, 200, map[string]any{"ok": true})
-	}
 }
 
 func handleRequeue(db *sql.DB) http.HandlerFunc {
