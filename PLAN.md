@@ -14,8 +14,7 @@ CREATE TABLE goals (
     title       TEXT    NOT NULL,
     body        TEXT    NOT NULL,
     status      TEXT    NOT NULL DEFAULT 'draft'
-                        CHECK (status IN ('draft','queued','running','reviewing','done','stuck','cancelled')),
-    review      INTEGER NOT NULL DEFAULT 0,
+                        CHECK (status IN ('draft','queued','running','done','stuck','cancelled')),
     retries     INTEGER NOT NULL DEFAULT 0,
     created_at  TEXT    NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ', 'now')),
     updated_at  TEXT    NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ', 'now'))
@@ -66,8 +65,7 @@ Request:
     "org": "mgreenly",
     "repo": "ikigai",
     "title": "Add feature X",
-    "body": "## Objective\n...",
-    "review": false
+    "body": "## Objective\n..."
 }
 ```
 
@@ -88,7 +86,6 @@ Response:
     "title": "Add feature X",
     "body": "## Objective\n...",
     "status": "queued",
-    "review": false,
     "created_at": "2026-02-11T12:00:00Z",
     "updated_at": "2026-02-11T12:05:00Z"
 }
@@ -97,7 +94,7 @@ Response:
 #### GET /goals
 
 Query params:
-- `status` — filter by status (draft, queued, running, reviewing, done, stuck, cancelled)
+- `status` — filter by status (draft, queued, running, done, stuck, cancelled)
 - `org` — filter by org
 - `repo` — filter by repo
 
@@ -112,7 +109,6 @@ Response:
             "repo": "ikigai",
             "title": "Add feature X",
             "status": "queued",
-            "review": false,
             "depends": [3, 7]
         }
     ]
@@ -125,36 +121,16 @@ Response:
 |--------|-------|------------|---------|
 | PATCH  | `/goals/:id/queue` | draft → queued | `goal-queue` script |
 | PATCH  | `/goals/:id/start` | queued → running | orchestrator |
-| PATCH  | `/goals/:id/done` | running → done (review=false) | orchestrator |
+| PATCH  | `/goals/:id/done` | running → done | orchestrator |
 | PATCH  | `/goals/:id/stuck` | running → stuck | orchestrator |
-| PATCH  | `/goals/:id/review` | see below | orchestrator + human |
 | PATCH  | `/goals/:id/requeue` | stuck → queued | orchestrator (retry) |
 | PATCH  | `/goals/:id/cancel` | any non-terminal → cancelled | human |
 
 Each transition endpoint validates the current status before applying. Returns `{"ok": false, ...}` if the transition is invalid. All transitions are recorded in the `goal_transitions` table.
 
-#### PATCH /goals/:id/review
-
-This endpoint handles two flows:
-
-**Orchestrator sets reviewing status** (running → reviewing, only when review=true):
-```json
-{"action": "set"}
-```
-
-**Human approves** (reviewing → done):
-```json
-{"action": "approve"}
-```
-
-**Human rejects** (reviewing → queued, with feedback comment):
-```json
-{"action": "reject", "feedback": "Widget doesn't render"}
-```
-
 #### PATCH /goals/:id/cancel
 
-Cancels a goal from any non-terminal status (draft, queued, running, reviewing, stuck). Returns error if goal is already `done` or `cancelled`.
+Cancels a goal from any non-terminal status (draft, queued, running, stuck). Returns error if goal is already `done` or `cancelled`.
 
 ### Comments
 
@@ -192,11 +168,7 @@ Response:
 ```
 draft ──→ queued ──→ running ──→ done
   ↓         ↓          ↓
-  cancelled cancelled  ├──→ reviewing ──→ done
-                       │        ↓
-                       │      cancelled
-                       │
-                       └──→ stuck ──→ queued (retry)
+  cancelled cancelled  └──→ stuck ──→ queued (retry)
                               ↓
                             cancelled
 ```
@@ -208,13 +180,9 @@ Valid transitions:
 | draft | cancelled | human cancels |
 | queued | running | orchestrator picks up goal |
 | queued | cancelled | human cancels |
-| running | done | ralph succeeds (review=false) |
-| running | reviewing | ralph succeeds (review=true) |
+| running | done | ralph succeeds |
 | running | stuck | ralph fails after max retries |
 | running | cancelled | human cancels |
-| reviewing | done | human approves |
-| reviewing | queued | human rejects (with feedback) |
-| reviewing | cancelled | human cancels |
 | stuck | queued | manual retry / requeue |
 | stuck | cancelled | human cancels |
 

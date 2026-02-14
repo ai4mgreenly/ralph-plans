@@ -1,6 +1,6 @@
 # ralph-plans
 
-Goal storage and state machine for the Ralph pipeline. A Go HTTP API backed by SQLite that manages goal lifecycle — creation, queuing, execution tracking, review, and completion. All other Ralph services interact with goals through this API.
+Goal storage and state machine for the Ralph pipeline. A Go HTTP API backed by SQLite that manages goal lifecycle — creation, queuing, execution tracking, and completion. All other Ralph services interact with goals through this API.
 
 Philosophy: deliberately minimalist. Go standard library HTTP, SQLite for persistence, no ORM or framework.
 
@@ -48,7 +48,6 @@ Goal management scripts live in `scripts/goal-*/run` (Ruby, return JSON). Symlin
 | `goal-cancel` | Cancel a goal |
 | `goal-comment` | Add a comment to a goal |
 | `goal-comments` | List comments on a goal |
-| `goal-spot-check` | Spot-check a goal |
 
 ## Development
 

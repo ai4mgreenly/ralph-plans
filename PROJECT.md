@@ -51,7 +51,6 @@ Goals are units of work for Ralph to execute autonomously. Each goal has:
 - **title**: Short description
 - **body**: Markdown specification — describes WHAT to achieve, not HOW
 - **status**: Lifecycle state (see below)
-- **review**: Boolean flag — if true, goal pauses in `reviewing` status for human approval before transitioning to `done`
 - **created_at / updated_at**: Timestamps
 
 ### Goal statuses
@@ -59,10 +58,7 @@ Goals are units of work for Ralph to execute autonomously. Each goal has:
 ```
 draft → queued → running → done
   ↓       ↓        ↓
-  cancelled cancelled ├→ reviewing → done
-                      │      ↓
-                      │    cancelled
-                      └→ stuck → queued (retry)
+  cancelled cancelled └→ stuck → queued (retry)
                             ↓
                           cancelled
 ```
@@ -72,7 +68,6 @@ draft → queued → running → done
 | `draft` | Created but not ready for execution |
 | `queued` | Ready for the orchestrator to pick up |
 | `running` | Currently being executed by Ralph |
-| `reviewing` | Awaiting human review (when `review` flag is set) |
 | `done` | Completed successfully |
 | `stuck` | Failed after retries |
 | `cancelled` | Abandoned by human decision |
@@ -97,7 +92,6 @@ The API provides endpoints corresponding to each goal-* script:
 | `goal-queue` | PATCH | `/goals/:id/queue` | Transition draft → queued |
 | `goal-comment` | POST | `/goals/:id/comments` | Add a comment to a goal |
 | `goal-retry` | PATCH | `/goals/:id/retry` | Mark for retry (stuck → queued) |
-| `goal-review` | PATCH | `/goals/:id/review` | Set reviewing, approve, or reject |
 | `goal-cancel` | PATCH | `/goals/:id/cancel` | Cancel a goal |
 
 All endpoints return JSON in the form `{"ok": true/false, ...}` to match the existing script contract. Server defaults to port 1970, overridable via CLI argument.

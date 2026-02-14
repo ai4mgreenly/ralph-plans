@@ -14,7 +14,6 @@ type Goal struct {
 	Title     string `json:"title"`
 	Body      string `json:"body"`
 	Status    string `json:"status"`
-	Review    bool   `json:"review"`
 	Retries   int    `json:"retries"`
 	CreatedAt string `json:"created_at"`
 	UpdatedAt string `json:"updated_at"`
@@ -26,7 +25,6 @@ type GoalSummary struct {
 	Repo   string `json:"repo"`
 	Title  string `json:"title"`
 	Status string `json:"status"`
-	Review bool   `json:"review"`
 }
 
 type Comment struct {
@@ -71,8 +69,7 @@ func migrate(db *sql.DB) error {
 			title       TEXT    NOT NULL,
 			body        TEXT    NOT NULL,
 			status      TEXT    NOT NULL DEFAULT 'draft'
-			            CHECK (status IN ('draft','queued','running','reviewing','done','stuck','cancelled')),
-			review      INTEGER NOT NULL DEFAULT 0,
+			            CHECK (status IN ('draft','queued','running','done','stuck','cancelled')),
 			retries     INTEGER NOT NULL DEFAULT 0,
 			created_at  TEXT    NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ', 'now')),
 			updated_at  TEXT    NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ', 'now'))
@@ -103,14 +100,10 @@ func migrate(db *sql.DB) error {
 	return nil
 }
 
-func createGoal(db *sql.DB, org, repo, title, body string, review bool) (int64, error) {
-	reviewInt := 0
-	if review {
-		reviewInt = 1
-	}
+func createGoal(db *sql.DB, org, repo, title, body string) (int64, error) {
 	res, err := db.Exec(
-		`INSERT INTO goals (org, repo, title, body, review) VALUES (?, ?, ?, ?, ?)`,
-		org, repo, title, body, reviewInt,
+		`INSERT INTO goals (org, repo, title, body) VALUES (?, ?, ?, ?)`,
+		org, repo, title, body,
 	)
 	if err != nil {
 		return 0, err
@@ -120,15 +113,13 @@ func createGoal(db *sql.DB, org, repo, title, body string, review bool) (int64, 
 
 func getGoal(db *sql.DB, id int64) (*Goal, error) {
 	row := db.QueryRow(
-		`SELECT id, org, repo, title, body, status, review, retries, created_at, updated_at FROM goals WHERE id = ?`, id,
+		`SELECT id, org, repo, title, body, status, retries, created_at, updated_at FROM goals WHERE id = ?`, id,
 	)
 	var g Goal
-	var reviewInt int
-	err := row.Scan(&g.ID, &g.Org, &g.Repo, &g.Title, &g.Body, &g.Status, &reviewInt, &g.Retries, &g.CreatedAt, &g.UpdatedAt)
+	err := row.Scan(&g.ID, &g.Org, &g.Repo, &g.Title, &g.Body, &g.Status, &g.Retries, &g.CreatedAt, &g.UpdatedAt)
 	if err != nil {
 		return nil, err
 	}
-	g.Review = reviewInt != 0
 	return &g, nil
 }
 
@@ -159,7 +150,7 @@ func listGoals(db *sql.DB, status, org, repo string, limit, offset int) ([]GoalS
 	}
 
 	// Build main query
-	query := `SELECT id, org, repo, title, status, review FROM goals ` + whereClause + ` ORDER BY id DESC`
+	query := `SELECT id, org, repo, title, status FROM goals ` + whereClause + ` ORDER BY id DESC`
 	if limit > 0 {
 		query += ` LIMIT ? OFFSET ?`
 		args = append(args, limit, offset)
@@ -174,11 +165,9 @@ func listGoals(db *sql.DB, status, org, repo string, limit, offset int) ([]GoalS
 	var goals []GoalSummary
 	for rows.Next() {
 		var g GoalSummary
-		var reviewInt int
-		if err := rows.Scan(&g.ID, &g.Org, &g.Repo, &g.Title, &g.Status, &reviewInt); err != nil {
+		if err := rows.Scan(&g.ID, &g.Org, &g.Repo, &g.Title, &g.Status); err != nil {
 			return nil, 0, err
 		}
-		g.Review = reviewInt != 0
 		goals = append(goals, g)
 	}
 	return goals, total, rows.Err()
