@@ -132,26 +132,42 @@ func getGoal(db *sql.DB, id int64) (*Goal, error) {
 	return &g, nil
 }
 
-func listGoals(db *sql.DB, status, org, repo string) ([]GoalSummary, error) {
-	query := `SELECT id, org, repo, title, status, review FROM goals WHERE 1=1`
+func listGoals(db *sql.DB, status, org, repo string, limit, offset int) ([]GoalSummary, int, error) {
+	// Build WHERE clause
+	whereClause := `WHERE 1=1`
 	var args []any
 	if status != "" {
-		query += ` AND status = ?`
+		whereClause += ` AND status = ?`
 		args = append(args, status)
 	}
 	if org != "" {
-		query += ` AND org = ?`
+		whereClause += ` AND org = ?`
 		args = append(args, org)
 	}
 	if repo != "" {
-		query += ` AND repo = ?`
+		whereClause += ` AND repo = ?`
 		args = append(args, repo)
 	}
-	query += ` ORDER BY id`
+
+	// Get total count when pagination is requested
+	total := 0
+	if limit > 0 {
+		countQuery := `SELECT COUNT(*) FROM goals ` + whereClause
+		if err := db.QueryRow(countQuery, args...).Scan(&total); err != nil {
+			return nil, 0, err
+		}
+	}
+
+	// Build main query
+	query := `SELECT id, org, repo, title, status, review FROM goals ` + whereClause + ` ORDER BY id`
+	if limit > 0 {
+		query += ` LIMIT ? OFFSET ?`
+		args = append(args, limit, offset)
+	}
 
 	rows, err := db.Query(query, args...)
 	if err != nil {
-		return nil, err
+		return nil, 0, err
 	}
 	defer rows.Close()
 
@@ -160,12 +176,12 @@ func listGoals(db *sql.DB, status, org, repo string) ([]GoalSummary, error) {
 		var g GoalSummary
 		var reviewInt int
 		if err := rows.Scan(&g.ID, &g.Org, &g.Repo, &g.Title, &g.Status, &reviewInt); err != nil {
-			return nil, err
+			return nil, 0, err
 		}
 		g.Review = reviewInt != 0
 		goals = append(goals, g)
 	}
-	return goals, rows.Err()
+	return goals, total, rows.Err()
 }
 
 func updateGoalStatus(db *sql.DB, id int64, from, to string) error {
