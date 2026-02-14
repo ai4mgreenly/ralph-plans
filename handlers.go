@@ -108,7 +108,41 @@ func handleListGoals(db *sql.DB) http.HandlerFunc {
 		org := r.URL.Query().Get("org")
 		repo := r.URL.Query().Get("repo")
 
-		goals, err := listGoals(db, status, org, repo)
+		// Parse pagination parameters
+		pageStr := r.URL.Query().Get("page")
+		perPageStr := r.URL.Query().Get("per_page")
+
+		var limit, offset int
+		var page, perPage int
+		paginated := pageStr != ""
+
+		if paginated {
+			var err error
+			page, err = strconv.Atoi(pageStr)
+			if err != nil || page <= 0 {
+				writeErr(w, 400, "page must be a positive integer")
+				return
+			}
+
+			perPage = 20 // default
+			if perPageStr != "" {
+				perPage, err = strconv.Atoi(perPageStr)
+				if err != nil || perPage <= 0 {
+					writeErr(w, 400, "per_page must be a positive integer")
+					return
+				}
+			}
+
+			// Clamp per_page to max 100
+			if perPage > 100 {
+				perPage = 100
+			}
+
+			limit = perPage
+			offset = (page - 1) * perPage
+		}
+
+		goals, total, err := listGoals(db, status, org, repo, limit, offset)
 		if err != nil {
 			writeErr(w, 500, "failed to list goals")
 			return
@@ -116,7 +150,18 @@ func handleListGoals(db *sql.DB) http.HandlerFunc {
 		if goals == nil {
 			goals = []GoalSummary{}
 		}
-		writeJSON(w, 200, map[string]any{"ok": true, "items": goals})
+
+		if paginated {
+			writeJSON(w, 200, map[string]any{
+				"ok":       true,
+				"items":    goals,
+				"page":     page,
+				"per_page": perPage,
+				"total":    total,
+			})
+		} else {
+			writeJSON(w, 200, map[string]any{"ok": true, "items": goals})
+		}
 	}
 }
 
