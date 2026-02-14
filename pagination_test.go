@@ -138,11 +138,11 @@ func TestPagination(t *testing.T) {
 			t.Fatalf("expected page=2, got %v", resp["page"])
 		}
 
-		// Verify offset - second page should have IDs 6-10
+		// Verify offset - second page should have IDs 10-6 (descending order)
 		firstItem := items[0].(map[string]any)
 		firstID := int(firstItem["id"].(float64))
-		if firstID != 6 {
-			t.Fatalf("expected first item on page 2 to have id=6, got %d", firstID)
+		if firstID != 10 {
+			t.Fatalf("expected first item on page 2 to have id=10, got %d", firstID)
 		}
 	})
 

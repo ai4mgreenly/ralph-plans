@@ -159,7 +159,7 @@ func listGoals(db *sql.DB, status, org, repo string, limit, offset int) ([]GoalS
 	}
 
 	// Build main query
-	query := `SELECT id, org, repo, title, status, review FROM goals ` + whereClause + ` ORDER BY id`
+	query := `SELECT id, org, repo, title, status, review FROM goals ` + whereClause + ` ORDER BY id DESC`
 	if limit > 0 {
 		query += ` LIMIT ? OFFSET ?`
 		args = append(args, limit, offset)
