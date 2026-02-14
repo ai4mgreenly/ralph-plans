@@ -17,3 +17,7 @@ Skillsets are composite bundles of skills defined in `.claude/skillsets/<name>.j
 ### Available skillsets
 
 - `meta` - For improving the .claude/ system (preloads: jj, pipeline, goal-authoring, align)
+
+### Goal Authoring for This Repo
+
+When creating goals targeting this repository, use `--org ai4mgreenly --repo ralph-plans`.
