@@ -29,6 +29,20 @@ Goals are created via `goal-create` with body on stdin. The body must follow thi
 [Success criteria: tests pass, specific commands succeed, etc.]
 ```
 
+## Optional: Model and Reasoning
+
+Goals can optionally specify which model Ralph should use and what reasoning level:
+
+- `--model` (haiku, sonnet, opus): Choose based on task complexity. Default: system chooses based on workload.
+- `--reasoning` (none, low, med, high): Extended thinking for complex problems. Default: none.
+
+**When to specify:**
+
+- **Model:** Use `opus` for highly complex refactoring or novel architectural work. Use `haiku` for simple, well-defined changes. Omit for most work (system default is usually appropriate).
+- **Reasoning:** Use `high` for multi-step logic problems, subtle bugs, or complex dependency chains. Use `low/med` for moderately complex tasks. Omit for straightforward work.
+
+Most goals should omit both — Ralph's default configuration handles typical work well. Only specify when the task clearly demands more capability or deeper analysis.
+
 ## Key Principles
 
 1. **Specify WHAT, never HOW** — Outcomes, not steps/order
