@@ -47,10 +47,12 @@ func goalIDFromRequest(r *http.Request) (int64, error) {
 func handleCreateGoal(db *sql.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		var req struct {
-			Org   string `json:"org"`
-			Repo  string `json:"repo"`
-			Title string `json:"title"`
-			Body  string `json:"body"`
+			Org       string  `json:"org"`
+			Repo      string  `json:"repo"`
+			Title     string  `json:"title"`
+			Body      string  `json:"body"`
+			Model     *string `json:"model"`
+			Reasoning *string `json:"reasoning"`
 		}
 		if err := readJSON(r, &req); err != nil {
 			writeErr(w, 400, "invalid JSON")
@@ -60,7 +62,23 @@ func handleCreateGoal(db *sql.DB) http.HandlerFunc {
 			writeErr(w, 400, "org, repo, title, and body are required")
 			return
 		}
-		id, err := createGoal(db, req.Org, req.Repo, req.Title, req.Body)
+		// Validate model if provided
+		if req.Model != nil {
+			validModels := map[string]bool{"haiku": true, "sonnet": true, "opus": true}
+			if !validModels[*req.Model] {
+				writeErr(w, 400, "model must be one of: haiku, sonnet, opus")
+				return
+			}
+		}
+		// Validate reasoning if provided
+		if req.Reasoning != nil {
+			validReasoning := map[string]bool{"none": true, "low": true, "med": true, "high": true}
+			if !validReasoning[*req.Reasoning] {
+				writeErr(w, 400, "reasoning must be one of: none, low, med, high")
+				return
+			}
+		}
+		id, err := createGoal(db, req.Org, req.Repo, req.Title, req.Body, req.Model, req.Reasoning)
 		if err != nil {
 			writeErr(w, 500, "failed to create goal")
 			return
@@ -93,6 +111,8 @@ func handleGetGoal(db *sql.DB) http.HandlerFunc {
 			"title":      g.Title,
 			"body":       g.Body,
 			"status":     g.Status,
+			"model":      g.Model,
+			"reasoning":  g.Reasoning,
 			"created_at": g.CreatedAt,
 			"updated_at": g.UpdatedAt,
 		})

@@ -20,7 +20,7 @@ func TestPagination(t *testing.T) {
 
 	// Create test goals
 	for i := 1; i <= 15; i++ {
-		_, err := createGoal(db, "org1", "repo1", "Goal "+string(rune('A'+i-1)), "Body")
+		_, err := createGoal(db, "org1", "repo1", "Goal "+string(rune('A'+i-1)), "Body", nil, nil)
 		if err != nil {
 			t.Fatal(err)
 		}
