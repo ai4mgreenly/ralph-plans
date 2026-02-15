@@ -45,7 +45,7 @@ Human writes goal → goal-create (draft) → goal-queue (queued) → Ralph exec
 
 | Command | Usage | Does |
 |---------|-------|------|
-| `goal-create` | `--title "..." --org ORG --repo REPO < body.md` | Create goal (draft). Body via stdin. |
+| `goal-create` | `--title "..." --org ORG --repo REPO [--model MODEL] [--reasoning LEVEL] < body.md` | Create goal (draft). Body via stdin. Optional model (haiku/sonnet/opus) and reasoning level (none/low/med/high). |
 | `goal-list` | `[--status STATUS] [--org ORG] [--repo REPO]` | List goals, optionally filtered |
 | `goal-get` | `<id>` | Read goal body + status |
 | `goal-queue` | `<id>` | Transition draft → queued |

@@ -69,6 +69,24 @@ def main
     exit 1
   end
 
+  # Validate model if provided
+  if model
+    valid_models = %w[haiku sonnet opus]
+    unless valid_models.include?(model)
+      puts JSON.generate(ok: false, error: "--model must be one of: #{valid_models.join(', ')}")
+      exit 1
+    end
+  end
+
+  # Validate reasoning if provided
+  if reasoning
+    valid_levels = %w[none low med high]
+    unless valid_levels.include?(reasoning)
+      puts JSON.generate(ok: false, error: "--reasoning must be one of: #{valid_levels.join(', ')}")
+      exit 1
+    end
+  end
+
   # Read body from stdin
   if $stdin.tty?
     puts JSON.generate(ok: false, error: 'body must be provided on stdin')
