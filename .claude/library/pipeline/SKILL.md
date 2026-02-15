@@ -45,13 +45,15 @@ Human writes goal → goal-create (draft) → goal-queue (queued) → Ralph exec
 
 | Command | Usage | Does |
 |---------|-------|------|
-| `goal-create` | `--title "..." --org ORG --repo REPO [--model MODEL] [--reasoning LEVEL] < body.md` | Create goal (draft). Body via stdin. Optional model (haiku/sonnet/opus) and reasoning level (none/low/med/high). |
+| `goal-create` | `--title "..." --org ORG --repo REPO [--model MODEL] [--reasoning LEVEL] < body.md` | Create goal (draft). Body via stdin. **Do not use `--model` or `--reasoning` unless user explicitly requests them for this specific goal.** Default is to omit both flags, letting the orchestrator use its defaults. |
 | `goal-list` | `[--status STATUS] [--org ORG] [--repo REPO]` | List goals, optionally filtered |
 | `goal-get` | `<id>` | Read goal body + status |
 | `goal-queue` | `<id>` | Transition draft → queued |
 | `goal-cancel` | `<id>` | Cancel a non-terminal goal |
 
 ## Creating a Goal
+
+**Default:** Do not include `--model` or `--reasoning` flags. Only use them when the user explicitly requests them for a specific goal.
 
 ```bash
 cat <<'EOF' | goal-create --title "Add feature X" --org myorg --repo myrepo
@@ -89,4 +91,5 @@ Goal bodies **must** follow the `goal-authoring` skill guidelines (`/load goal-a
 
 - **Body via stdin** — `goal-create` reads body from stdin
 - **org + repo required** — Every goal targets a specific GitHub org/repo
+- **No model/reasoning flags by default** — Do NOT use `--model` or `--reasoning` unless the user explicitly requests them for that specific goal. Default is to omit these flags entirely, letting the orchestrator use its defaults.
 - Goals go through Ralph — don't make local changes unless explicitly asked
