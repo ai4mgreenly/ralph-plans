@@ -2,29 +2,34 @@ package main
 
 import (
 	"database/sql"
+	"strings"
 	"time"
 
 	_ "modernc.org/sqlite"
 )
 
 type Goal struct {
-	ID        int64  `json:"id"`
-	Org       string `json:"org"`
-	Repo      string `json:"repo"`
-	Title     string `json:"title"`
-	Body      string `json:"body"`
-	Status    string `json:"status"`
-	Retries   int    `json:"retries"`
-	CreatedAt string `json:"created_at"`
-	UpdatedAt string `json:"updated_at"`
+	ID        int64   `json:"id"`
+	Org       string  `json:"org"`
+	Repo      string  `json:"repo"`
+	Title     string  `json:"title"`
+	Body      string  `json:"body"`
+	Status    string  `json:"status"`
+	Retries   int     `json:"retries"`
+	Model     *string `json:"model"`
+	Reasoning *string `json:"reasoning"`
+	CreatedAt string  `json:"created_at"`
+	UpdatedAt string  `json:"updated_at"`
 }
 
 type GoalSummary struct {
-	ID     int64  `json:"id"`
-	Org    string `json:"org"`
-	Repo   string `json:"repo"`
-	Title  string `json:"title"`
-	Status string `json:"status"`
+	ID        int64   `json:"id"`
+	Org       string  `json:"org"`
+	Repo      string  `json:"repo"`
+	Title     string  `json:"title"`
+	Status    string  `json:"status"`
+	Model     *string `json:"model"`
+	Reasoning *string `json:"reasoning"`
 }
 
 type Comment struct {
@@ -71,6 +76,8 @@ func migrate(db *sql.DB) error {
 			status      TEXT    NOT NULL DEFAULT 'draft'
 			            CHECK (status IN ('draft','queued','running','done','stuck','cancelled')),
 			retries     INTEGER NOT NULL DEFAULT 0,
+			model       TEXT    CHECK (model IS NULL OR model IN ('haiku','sonnet','opus')),
+			reasoning   TEXT    CHECK (reasoning IS NULL OR reasoning IN ('none','low','med','high')),
 			created_at  TEXT    NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ', 'now')),
 			updated_at  TEXT    NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ', 'now'))
 		)`,
@@ -97,13 +104,30 @@ func migrate(db *sql.DB) error {
 			return err
 		}
 	}
+
+	// Add model and reasoning columns to existing tables (for backwards compatibility)
+	// SQLite allows ALTER TABLE ADD COLUMN with CHECK constraints that only reference the added column
+	alterStmts := []string{
+		`ALTER TABLE goals ADD COLUMN model TEXT CHECK (model IS NULL OR model IN ('haiku','sonnet','opus'))`,
+		`ALTER TABLE goals ADD COLUMN reasoning TEXT CHECK (reasoning IS NULL OR reasoning IN ('none','low','med','high'))`,
+	}
+	for _, s := range alterStmts {
+		_, err := db.Exec(s)
+		if err != nil {
+			// Ignore duplicate column errors - column already exists
+			if strings.Contains(err.Error(), "duplicate column name") {
+				continue
+			}
+			return err
+		}
+	}
 	return nil
 }
 
-func createGoal(db *sql.DB, org, repo, title, body string) (int64, error) {
+func createGoal(db *sql.DB, org, repo, title, body string, model, reasoning *string) (int64, error) {
 	res, err := db.Exec(
-		`INSERT INTO goals (org, repo, title, body) VALUES (?, ?, ?, ?)`,
-		org, repo, title, body,
+		`INSERT INTO goals (org, repo, title, body, model, reasoning) VALUES (?, ?, ?, ?, ?, ?)`,
+		org, repo, title, body, model, reasoning,
 	)
 	if err != nil {
 		return 0, err
@@ -113,10 +137,10 @@ func createGoal(db *sql.DB, org, repo, title, body string) (int64, error) {
 
 func getGoal(db *sql.DB, id int64) (*Goal, error) {
 	row := db.QueryRow(
-		`SELECT id, org, repo, title, body, status, retries, created_at, updated_at FROM goals WHERE id = ?`, id,
+		`SELECT id, org, repo, title, body, status, retries, model, reasoning, created_at, updated_at FROM goals WHERE id = ?`, id,
 	)
 	var g Goal
-	err := row.Scan(&g.ID, &g.Org, &g.Repo, &g.Title, &g.Body, &g.Status, &g.Retries, &g.CreatedAt, &g.UpdatedAt)
+	err := row.Scan(&g.ID, &g.Org, &g.Repo, &g.Title, &g.Body, &g.Status, &g.Retries, &g.Model, &g.Reasoning, &g.CreatedAt, &g.UpdatedAt)
 	if err != nil {
 		return nil, err
 	}
@@ -150,7 +174,7 @@ func listGoals(db *sql.DB, status, org, repo string, limit, offset int) ([]GoalS
 	}
 
 	// Build main query
-	query := `SELECT id, org, repo, title, status FROM goals ` + whereClause + ` ORDER BY id DESC`
+	query := `SELECT id, org, repo, title, status, model, reasoning FROM goals ` + whereClause + ` ORDER BY id DESC`
 	if limit > 0 {
 		query += ` LIMIT ? OFFSET ?`
 		args = append(args, limit, offset)
@@ -165,7 +189,7 @@ func listGoals(db *sql.DB, status, org, repo string, limit, offset int) ([]GoalS
 	var goals []GoalSummary
 	for rows.Next() {
 		var g GoalSummary
-		if err := rows.Scan(&g.ID, &g.Org, &g.Repo, &g.Title, &g.Status); err != nil {
+		if err := rows.Scan(&g.ID, &g.Org, &g.Repo, &g.Title, &g.Status, &g.Model, &g.Reasoning); err != nil {
 			return nil, 0, err
 		}
 		goals = append(goals, g)
