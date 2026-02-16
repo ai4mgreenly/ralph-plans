@@ -18,6 +18,7 @@ type Goal struct {
 	Retries   int     `json:"retries"`
 	Model     *string `json:"model"`
 	Reasoning *string `json:"reasoning"`
+	PR        *int    `json:"pr"`
 	CreatedAt string  `json:"created_at"`
 	UpdatedAt string  `json:"updated_at"`
 }
@@ -30,6 +31,7 @@ type GoalSummary struct {
 	Status    string  `json:"status"`
 	Model     *string `json:"model"`
 	Reasoning *string `json:"reasoning"`
+	PR        *int    `json:"pr"`
 }
 
 type Comment struct {
@@ -105,11 +107,12 @@ func migrate(db *sql.DB) error {
 		}
 	}
 
-	// Add model and reasoning columns to existing tables (for backwards compatibility)
+	// Add model, reasoning, and pr columns to existing tables (for backwards compatibility)
 	// SQLite allows ALTER TABLE ADD COLUMN with CHECK constraints that only reference the added column
 	alterStmts := []string{
 		`ALTER TABLE goals ADD COLUMN model TEXT CHECK (model IS NULL OR model IN ('haiku','sonnet','opus'))`,
 		`ALTER TABLE goals ADD COLUMN reasoning TEXT CHECK (reasoning IS NULL OR reasoning IN ('none','low','med','high'))`,
+		`ALTER TABLE goals ADD COLUMN pr INTEGER`,
 	}
 	for _, s := range alterStmts {
 		_, err := db.Exec(s)
@@ -137,10 +140,10 @@ func createGoal(db *sql.DB, org, repo, title, body string, model, reasoning *str
 
 func getGoal(db *sql.DB, id int64) (*Goal, error) {
 	row := db.QueryRow(
-		`SELECT id, org, repo, title, body, status, retries, model, reasoning, created_at, updated_at FROM goals WHERE id = ?`, id,
+		`SELECT id, org, repo, title, body, status, retries, model, reasoning, pr, created_at, updated_at FROM goals WHERE id = ?`, id,
 	)
 	var g Goal
-	err := row.Scan(&g.ID, &g.Org, &g.Repo, &g.Title, &g.Body, &g.Status, &g.Retries, &g.Model, &g.Reasoning, &g.CreatedAt, &g.UpdatedAt)
+	err := row.Scan(&g.ID, &g.Org, &g.Repo, &g.Title, &g.Body, &g.Status, &g.Retries, &g.Model, &g.Reasoning, &g.PR, &g.CreatedAt, &g.UpdatedAt)
 	if err != nil {
 		return nil, err
 	}
@@ -174,7 +177,7 @@ func listGoals(db *sql.DB, status, org, repo string, limit, offset int) ([]GoalS
 	}
 
 	// Build main query
-	query := `SELECT id, org, repo, title, status, model, reasoning FROM goals ` + whereClause + ` ORDER BY id DESC`
+	query := `SELECT id, org, repo, title, status, model, reasoning, pr FROM goals ` + whereClause + ` ORDER BY id DESC`
 	if limit > 0 {
 		query += ` LIMIT ? OFFSET ?`
 		args = append(args, limit, offset)
@@ -189,7 +192,7 @@ func listGoals(db *sql.DB, status, org, repo string, limit, offset int) ([]GoalS
 	var goals []GoalSummary
 	for rows.Next() {
 		var g GoalSummary
-		if err := rows.Scan(&g.ID, &g.Org, &g.Repo, &g.Title, &g.Status, &g.Model, &g.Reasoning); err != nil {
+		if err := rows.Scan(&g.ID, &g.Org, &g.Repo, &g.Title, &g.Status, &g.Model, &g.Reasoning, &g.PR); err != nil {
 			return nil, 0, err
 		}
 		goals = append(goals, g)
@@ -259,4 +262,23 @@ func listComments(db *sql.DB, goalID int64) ([]Comment, error) {
 		comments = append(comments, c)
 	}
 	return comments, rows.Err()
+}
+
+func updateGoalPR(db *sql.DB, id int64, pr int) error {
+	now := time.Now().UTC().Format(time.RFC3339)
+	res, err := db.Exec(
+		`UPDATE goals SET pr = ?, updated_at = ? WHERE id = ?`,
+		pr, now, id,
+	)
+	if err != nil {
+		return err
+	}
+	n, err := res.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if n == 0 {
+		return sql.ErrNoRows
+	}
+	return nil
 }

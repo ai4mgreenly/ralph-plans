@@ -17,6 +17,7 @@ func registerRoutes(mux *http.ServeMux, db *sql.DB) {
 	mux.HandleFunc("PATCH /goals/{id}/stuck", handleStuck(db))
 	mux.HandleFunc("PATCH /goals/{id}/requeue", handleRequeue(db))
 	mux.HandleFunc("PATCH /goals/{id}/cancel", handleCancel(db))
+	mux.HandleFunc("PATCH /goals/{id}/pr", handleSetPR(db))
 	mux.HandleFunc("POST /goals/{id}/comments", handleCreateComment(db))
 	mux.HandleFunc("GET /goals/{id}/comments", handleListComments(db))
 }
@@ -113,6 +114,7 @@ func handleGetGoal(db *sql.DB) http.HandlerFunc {
 			"status":     g.Status,
 			"model":      g.Model,
 			"reasoning":  g.Reasoning,
+			"pr":         g.PR,
 			"created_at": g.CreatedAt,
 			"updated_at": g.UpdatedAt,
 		})
@@ -281,6 +283,40 @@ func handleListComments(db *sql.DB) http.HandlerFunc {
 			comments = []Comment{}
 		}
 		writeJSON(w, 200, map[string]any{"ok": true, "items": comments})
+	}
+}
+
+func handleSetPR(db *sql.DB) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		id, err := goalIDFromRequest(r)
+		if err != nil {
+			writeErr(w, 400, "invalid goal id")
+			return
+		}
+		// Verify goal exists
+		if _, err := getGoal(db, id); err == sql.ErrNoRows {
+			writeErr(w, 404, "goal not found")
+			return
+		} else if err != nil {
+			writeErr(w, 500, "failed to get goal")
+			return
+		}
+		var req struct {
+			PR int `json:"pr"`
+		}
+		if err := readJSON(r, &req); err != nil {
+			writeErr(w, 400, "invalid JSON")
+			return
+		}
+		if req.PR <= 0 {
+			writeErr(w, 400, "pr must be a positive integer")
+			return
+		}
+		if err := updateGoalPR(db, id, req.PR); err != nil {
+			writeErr(w, 500, "failed to update pr")
+			return
+		}
+		writeJSON(w, 200, map[string]any{"ok": true})
 	}
 }
 
