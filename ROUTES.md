@@ -11,6 +11,7 @@
 | PATCH | `/goals/{id}/stuck` | Transition running → stuck |
 | PATCH | `/goals/{id}/requeue` | Transition stuck → queued |
 | PATCH | `/goals/{id}/cancel` | Cancel any non-terminal goal |
+| PATCH | `/goals/{id}/pr` | Set the pull request number for a goal |
 | POST | `/goals/{id}/comments` | Add a comment to a goal |
 | GET | `/goals/{id}/comments` | List comments for a goal |
 
