@@ -56,11 +56,13 @@ Goals are units of work for Ralph to execute autonomously. Each goal has:
 ### Goal statuses
 
 ```
-draft → queued → running → done
-  ↓       ↓        ↓
-  cancelled cancelled └→ stuck → queued (retry)
-                            ↓
-                          cancelled
+draft → queued → running → submitted → merged
+  ↓       ↓        ↓           ↓
+  cancelled cancelled          └→ rejected
+                    ↓
+                  stuck → queued (retry)
+                    ↓
+                  cancelled
 ```
 
 | Status | Meaning |
@@ -68,9 +70,13 @@ draft → queued → running → done
 | `draft` | Created but not ready for execution |
 | `queued` | Ready for the orchestrator to pick up |
 | `running` | Currently being executed by Ralph |
-| `done` | Completed successfully |
+| `submitted` | PR created, awaiting merge or rejection |
+| `merged` | PR successfully merged |
+| `rejected` | PR closed without merging |
 | `stuck` | Failed after retries |
 | `cancelled` | Abandoned by human decision |
+
+**Automatic PR tracking:** When a `submitted` goal is fetched via `GET /goals/{id}` and has an associated PR number, the API automatically checks the PR's state on GitHub. If the PR has been merged or closed, the goal status automatically transitions to `merged` or `rejected` respectively. Results are cached for 60 seconds to minimize API calls.
 
 ### State history
 
