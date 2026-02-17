@@ -125,31 +125,15 @@ func migrate(db *sql.DB) error {
 		}
 	}
 
-	// Migrate 'done' status to 'submitted' and recreate table with new statuses
-	// Check if we need to migrate by looking for 'done' status in data
-	var hasDoneStatus int
-	err := db.QueryRow(`SELECT COUNT(*) FROM goals WHERE status = 'done'`).Scan(&hasDoneStatus)
-	if err == nil && hasDoneStatus > 0 {
-		// Update done to submitted
-		if _, err := db.Exec(`UPDATE goals SET status = 'submitted' WHERE status = 'done'`); err != nil {
-			return err
-		}
-	}
-
-	// Check if table needs recreation (has old constraint) by trying to insert a test 'submitted' status
-	// We'll use a transaction and rollback to test
+	// Recreate table if constraint is outdated (e.g. still has 'done'/'reviewing')
 	tx, err := db.Begin()
 	if err != nil {
 		return err
 	}
-	defer tx.Rollback()
-
 	_, testErr := tx.Exec(`INSERT INTO goals (org, repo, title, body, status) VALUES ('__test', '__test', '__test', '__test', 'submitted')`)
 	tx.Rollback()
 
-	// If the insert failed due to constraint, we need to recreate the table
 	if testErr != nil && strings.Contains(testErr.Error(), "CHECK constraint failed") {
-		// Recreate goals table with new constraints
 		recreateStmts := []string{
 			`ALTER TABLE goals RENAME TO goals_old`,
 			`CREATE TABLE goals (
@@ -168,7 +152,9 @@ func migrate(db *sql.DB) error {
 				updated_at  TEXT    NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ', 'now'))
 			)`,
 			`INSERT INTO goals (id, org, repo, title, body, status, retries, model, reasoning, pr, created_at, updated_at)
-			 SELECT id, org, repo, title, body, status, retries, model, reasoning, pr, created_at, updated_at FROM goals_old`,
+			 SELECT id, org, repo, title, body,
+			        CASE WHEN status IN ('done','reviewing') THEN 'submitted' ELSE status END,
+			        retries, model, reasoning, pr, created_at, updated_at FROM goals_old`,
 			`DROP TABLE goals_old`,
 			`CREATE INDEX IF NOT EXISTS idx_goals_status ON goals(status)`,
 			`CREATE INDEX IF NOT EXISTS idx_goals_org_repo ON goals(org, repo)`,
