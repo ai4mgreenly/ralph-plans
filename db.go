@@ -134,7 +134,9 @@ func migrate(db *sql.DB) error {
 	tx.Rollback()
 
 	if testErr != nil && strings.Contains(testErr.Error(), "CHECK constraint failed") {
+		// Disable FKs so goal_transitions/goal_comments don't block the rename+drop
 		recreateStmts := []string{
+			`PRAGMA foreign_keys=OFF`,
 			`ALTER TABLE goals RENAME TO goals_old`,
 			`CREATE TABLE goals (
 				id          INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -158,6 +160,7 @@ func migrate(db *sql.DB) error {
 			`DROP TABLE goals_old`,
 			`CREATE INDEX IF NOT EXISTS idx_goals_status ON goals(status)`,
 			`CREATE INDEX IF NOT EXISTS idx_goals_org_repo ON goals(org, repo)`,
+			`PRAGMA foreign_keys=ON`,
 		}
 		for _, s := range recreateStmts {
 			if _, err := db.Exec(s); err != nil {
