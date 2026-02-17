@@ -76,7 +76,7 @@ func migrate(db *sql.DB) error {
 			title       TEXT    NOT NULL,
 			body        TEXT    NOT NULL,
 			status      TEXT    NOT NULL DEFAULT 'draft'
-			            CHECK (status IN ('draft','queued','running','done','stuck','cancelled')),
+			            CHECK (status IN ('draft','queued','running','submitted','merged','rejected','stuck','cancelled')),
 			retries     INTEGER NOT NULL DEFAULT 0,
 			model       TEXT    CHECK (model IS NULL OR model IN ('haiku','sonnet','opus')),
 			reasoning   TEXT    CHECK (reasoning IS NULL OR reasoning IN ('none','low','med','high')),
@@ -124,6 +124,62 @@ func migrate(db *sql.DB) error {
 			return err
 		}
 	}
+
+	// Migrate 'done' status to 'submitted' and recreate table with new statuses
+	// Check if we need to migrate by looking for 'done' status in data
+	var hasDoneStatus int
+	err := db.QueryRow(`SELECT COUNT(*) FROM goals WHERE status = 'done'`).Scan(&hasDoneStatus)
+	if err == nil && hasDoneStatus > 0 {
+		// Update done to submitted
+		if _, err := db.Exec(`UPDATE goals SET status = 'submitted' WHERE status = 'done'`); err != nil {
+			return err
+		}
+	}
+
+	// Check if table needs recreation (has old constraint) by trying to insert a test 'submitted' status
+	// We'll use a transaction and rollback to test
+	tx, err := db.Begin()
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+
+	_, testErr := tx.Exec(`INSERT INTO goals (org, repo, title, body, status) VALUES ('__test', '__test', '__test', '__test', 'submitted')`)
+	tx.Rollback()
+
+	// If the insert failed due to constraint, we need to recreate the table
+	if testErr != nil && strings.Contains(testErr.Error(), "CHECK constraint failed") {
+		// Recreate goals table with new constraints
+		recreateStmts := []string{
+			`ALTER TABLE goals RENAME TO goals_old`,
+			`CREATE TABLE goals (
+				id          INTEGER PRIMARY KEY AUTOINCREMENT,
+				org         TEXT    NOT NULL,
+				repo        TEXT    NOT NULL,
+				title       TEXT    NOT NULL,
+				body        TEXT    NOT NULL,
+				status      TEXT    NOT NULL DEFAULT 'draft'
+				            CHECK (status IN ('draft','queued','running','submitted','merged','rejected','stuck','cancelled')),
+				retries     INTEGER NOT NULL DEFAULT 0,
+				model       TEXT    CHECK (model IS NULL OR model IN ('haiku','sonnet','opus')),
+				reasoning   TEXT    CHECK (reasoning IS NULL OR reasoning IN ('none','low','med','high')),
+				pr          INTEGER,
+				created_at  TEXT    NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ', 'now')),
+				updated_at  TEXT    NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ', 'now'))
+			)`,
+			`INSERT INTO goals (id, org, repo, title, body, status, retries, model, reasoning, pr, created_at, updated_at)
+			 SELECT id, org, repo, title, body, status, retries, model, reasoning, pr, created_at, updated_at FROM goals_old`,
+			`DROP TABLE goals_old`,
+			`CREATE INDEX IF NOT EXISTS idx_goals_status ON goals(status)`,
+			`CREATE INDEX IF NOT EXISTS idx_goals_org_repo ON goals(org, repo)`,
+		}
+		for _, s := range recreateStmts {
+			if _, err := db.Exec(s); err != nil {
+				return err
+			}
+		}
+	}
+
 	return nil
 }
 

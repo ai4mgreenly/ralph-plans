@@ -2,7 +2,7 @@
 # frozen_string_literal: true
 
 #
-# scripts/goal-done - Transition a goal from running to done
+# scripts/goal-done - Transition a goal from running to submitted
 #
 # Usage: goal-done <id>
 #
@@ -22,13 +22,13 @@ def main
     opts.banner = <<~HELP
       Usage: goal-done <id>
 
-      Transition a pipeline goal from running to done.
+      Transition a pipeline goal from running to submitted.
 
       Arguments:
         id    Goal ID (required)
 
       What it does:
-        Transitions the goal from running to done.
+        Transitions the goal from running to submitted.
 
       Output:
         JSON {"ok": true}
@@ -45,7 +45,7 @@ def main
     exit 1
   end
 
-  uri = URI("http://#{RALPH_PLANS_HOST}:#{RALPH_PLANS_PORT}/goals/#{id}/done")
+  uri = URI("http://#{RALPH_PLANS_HOST}:#{RALPH_PLANS_PORT}/goals/#{id}/submitted")
   req = Net::HTTP::Patch.new(uri)
   resp = Net::HTTP.start(uri.hostname, uri.port) { |http| http.request(req) }
   result = JSON.parse(resp.body)

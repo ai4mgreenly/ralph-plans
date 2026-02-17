@@ -7,13 +7,15 @@ import (
 	"strconv"
 )
 
+var prCache = newPRCache()
+
 func registerRoutes(mux *http.ServeMux, db *sql.DB) {
 	mux.HandleFunc("POST /goals", handleCreateGoal(db))
 	mux.HandleFunc("GET /goals/{id}", handleGetGoal(db))
 	mux.HandleFunc("GET /goals", handleListGoals(db))
 	mux.HandleFunc("PATCH /goals/{id}/queue", handleQueue(db))
 	mux.HandleFunc("PATCH /goals/{id}/start", handleStart(db))
-	mux.HandleFunc("PATCH /goals/{id}/done", handleDone(db))
+	mux.HandleFunc("PATCH /goals/{id}/submitted", handleSubmitted(db))
 	mux.HandleFunc("PATCH /goals/{id}/stuck", handleStuck(db))
 	mux.HandleFunc("PATCH /goals/{id}/requeue", handleRequeue(db))
 	mux.HandleFunc("PATCH /goals/{id}/cancel", handleCancel(db))
@@ -104,6 +106,48 @@ func handleGetGoal(db *sql.DB) http.HandlerFunc {
 			writeErr(w, 500, "failed to get goal")
 			return
 		}
+
+		// If goal is submitted and has a PR, check GitHub for terminal state
+		if g.Status == "submitted" && g.PR != nil {
+			// Try to get from cache first
+			state, cached := prCache.get(g.Org, g.Repo, *g.PR)
+			if !cached {
+				// Not in cache, check GitHub
+				freshState, err := checkPRState(g.Org, g.Repo, *g.PR)
+				if err == nil {
+					// Successfully got PR state, cache it
+					state = freshState
+					prCache.set(g.Org, g.Repo, *g.PR, *freshState)
+				}
+				// If error, state remains nil and we don't transition
+			}
+
+			// If we have a state, check if PR is in terminal state
+			if state != nil {
+				var newStatus string
+				if state.Merged {
+					newStatus = "merged"
+				} else if state.Closed {
+					newStatus = "rejected"
+				}
+
+				// Transition if needed
+				if newStatus != "" {
+					// Use updateGoalStatus to transition from submitted to merged/rejected
+					if err := updateGoalStatus(db, id, "submitted", newStatus); err == nil {
+						// Successfully transitioned, update our in-memory goal
+						g.Status = newStatus
+						// Refresh from DB to get updated timestamp
+						if freshGoal, err := getGoal(db, id); err == nil {
+							g = freshGoal
+						}
+					}
+					// If transition fails (e.g., already transitioned by another request),
+					// we'll just return the current state
+				}
+			}
+		}
+
 		writeJSON(w, 200, map[string]any{
 			"ok":         true,
 			"id":         g.ID,
@@ -192,8 +236,8 @@ func handleStart(db *sql.DB) http.HandlerFunc {
 	return transitionHandler(db, "queued", "running")
 }
 
-func handleDone(db *sql.DB) http.HandlerFunc {
-	return transitionHandler(db, "running", "done")
+func handleSubmitted(db *sql.DB) http.HandlerFunc {
+	return transitionHandler(db, "running", "submitted")
 }
 
 func handleStuck(db *sql.DB) http.HandlerFunc {
