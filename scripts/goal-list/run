@@ -17,7 +17,7 @@ require 'optparse'
 RALPH_PLANS_HOST = ENV.fetch('RALPH_PLANS_HOST')
 RALPH_PLANS_PORT = ENV.fetch('RALPH_PLANS_PORT')
 
-VALID_STATUSES = %w[draft queued running done stuck cancelled].freeze
+VALID_STATUSES = %w[draft queued running submitted merged rejected stuck cancelled].freeze
 
 def main
   status = nil
