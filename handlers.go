@@ -22,6 +22,9 @@ func registerRoutes(mux *http.ServeMux, db *sql.DB) {
 	mux.HandleFunc("PATCH /goals/{id}/pr", handleSetPR(db))
 	mux.HandleFunc("POST /goals/{id}/comments", handleCreateComment(db))
 	mux.HandleFunc("GET /goals/{id}/comments", handleListComments(db))
+	mux.HandleFunc("POST /goals/{id}/dependencies", handleAddDependency(db))
+	mux.HandleFunc("DELETE /goals/{id}/dependencies/{dep_id}", handleRemoveDependency(db))
+	mux.HandleFunc("GET /goals/{id}/dependencies", handleListDependencies(db))
 }
 
 // --- helpers ---
@@ -233,7 +236,40 @@ func handleQueue(db *sql.DB) http.HandlerFunc {
 }
 
 func handleStart(db *sql.DB) http.HandlerFunc {
-	return transitionHandler(db, "queued", "running")
+	return func(w http.ResponseWriter, r *http.Request) {
+		id, err := goalIDFromRequest(r)
+		if err != nil {
+			writeErr(w, 400, "invalid goal id")
+			return
+		}
+		g, err := getGoal(db, id)
+		if err == sql.ErrNoRows {
+			writeErr(w, 404, "goal not found")
+			return
+		}
+		if err != nil {
+			writeErr(w, 500, "failed to get goal")
+			return
+		}
+		if g.Status != "queued" {
+			writeErr(w, 409, "cannot transition from "+g.Status+" to running")
+			return
+		}
+		unmet, err := hasUnmetDependencies(db, id)
+		if err != nil {
+			writeErr(w, 500, "failed to check dependencies")
+			return
+		}
+		if unmet {
+			writeErr(w, 409, "goal has unmet dependencies")
+			return
+		}
+		if err := updateGoalStatus(db, id, "queued", "running"); err != nil {
+			writeErr(w, 500, "failed to update status")
+			return
+		}
+		writeJSON(w, 200, map[string]any{"ok": true})
+	}
 }
 
 func handleSubmitted(db *sql.DB) http.HandlerFunc {
@@ -361,6 +397,127 @@ func handleSetPR(db *sql.DB) http.HandlerFunc {
 			return
 		}
 		writeJSON(w, 200, map[string]any{"ok": true})
+	}
+}
+
+// dependencyAllowedStatuses are the statuses that allow adding/removing dependencies.
+var dependencyAllowedStatuses = map[string]bool{
+	"draft":  true,
+	"queued": true,
+	"stuck":  true,
+}
+
+func handleAddDependency(db *sql.DB) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		id, err := goalIDFromRequest(r)
+		if err != nil {
+			writeErr(w, 400, "invalid goal id")
+			return
+		}
+		g, err := getGoal(db, id)
+		if err == sql.ErrNoRows {
+			writeErr(w, 404, "goal not found")
+			return
+		}
+		if err != nil {
+			writeErr(w, 500, "failed to get goal")
+			return
+		}
+		if !dependencyAllowedStatuses[g.Status] {
+			writeErr(w, 409, "cannot modify dependencies when goal is "+g.Status)
+			return
+		}
+		var req struct {
+			DependsOnID int64 `json:"depends_on_id"`
+		}
+		if err := readJSON(r, &req); err != nil {
+			writeErr(w, 400, "invalid JSON")
+			return
+		}
+		if req.DependsOnID == 0 {
+			writeErr(w, 400, "depends_on_id is required")
+			return
+		}
+		if req.DependsOnID == id {
+			writeErr(w, 400, "goal cannot depend on itself")
+			return
+		}
+		// Check that the dependency goal exists
+		if _, err := getGoal(db, req.DependsOnID); err == sql.ErrNoRows {
+			writeErr(w, 404, "dependency goal not found")
+			return
+		} else if err != nil {
+			writeErr(w, 500, "failed to get dependency goal")
+			return
+		}
+		if err := addDependency(db, id, req.DependsOnID); err != nil {
+			writeErr(w, 500, "failed to add dependency")
+			return
+		}
+		writeJSON(w, 201, map[string]any{"ok": true})
+	}
+}
+
+func handleRemoveDependency(db *sql.DB) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		id, err := goalIDFromRequest(r)
+		if err != nil {
+			writeErr(w, 400, "invalid goal id")
+			return
+		}
+		g, err := getGoal(db, id)
+		if err == sql.ErrNoRows {
+			writeErr(w, 404, "goal not found")
+			return
+		}
+		if err != nil {
+			writeErr(w, 500, "failed to get goal")
+			return
+		}
+		if !dependencyAllowedStatuses[g.Status] {
+			writeErr(w, 409, "cannot modify dependencies when goal is "+g.Status)
+			return
+		}
+		depIDStr := r.PathValue("dep_id")
+		depID, err := strconv.ParseInt(depIDStr, 10, 64)
+		if err != nil {
+			writeErr(w, 400, "invalid dep_id")
+			return
+		}
+		if err := removeDependency(db, id, depID); err == sql.ErrNoRows {
+			writeErr(w, 404, "dependency not found")
+			return
+		} else if err != nil {
+			writeErr(w, 500, "failed to remove dependency")
+			return
+		}
+		writeJSON(w, 200, map[string]any{"ok": true})
+	}
+}
+
+func handleListDependencies(db *sql.DB) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		id, err := goalIDFromRequest(r)
+		if err != nil {
+			writeErr(w, 400, "invalid goal id")
+			return
+		}
+		if _, err := getGoal(db, id); err == sql.ErrNoRows {
+			writeErr(w, 404, "goal not found")
+			return
+		} else if err != nil {
+			writeErr(w, 500, "failed to get goal")
+			return
+		}
+		deps, err := listDependencies(db, id)
+		if err != nil {
+			writeErr(w, 500, "failed to list dependencies")
+			return
+		}
+		if deps == nil {
+			deps = []int64{}
+		}
+		writeJSON(w, 200, map[string]any{"ok": true, "items": deps})
 	}
 }
 

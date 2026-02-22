@@ -14,6 +14,9 @@
 | PATCH | `/goals/{id}/pr` | Set the pull request number for a goal |
 | POST | `/goals/{id}/comments` | Add a comment to a goal |
 | GET | `/goals/{id}/comments` | List comments for a goal |
+| POST | `/goals/{id}/dependencies` | Add a dependency (body: `{"depends_on_id": N}`); only allowed in draft/queued/stuck |
+| DELETE | `/goals/{id}/dependencies/{dep_id}` | Remove a dependency; only allowed in draft/queued/stuck |
+| GET | `/goals/{id}/dependencies` | List dependency goal IDs |
 
 ## GET /goals - Pagination
 
