@@ -96,6 +96,11 @@ func migrate(db *sql.DB) error {
 			body        TEXT    NOT NULL,
 			created_at  TEXT    NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ', 'now'))
 		)`,
+		`CREATE TABLE IF NOT EXISTS goal_dependencies (
+			goal_id        INTEGER NOT NULL REFERENCES goals(id),
+			depends_on_id  INTEGER NOT NULL REFERENCES goals(id),
+			PRIMARY KEY (goal_id, depends_on_id)
+		)`,
 		`CREATE INDEX IF NOT EXISTS idx_goals_status        ON goals(status)`,
 		`CREATE INDEX IF NOT EXISTS idx_goals_org_repo      ON goals(org, repo)`,
 		`CREATE INDEX IF NOT EXISTS idx_comments_goal_id    ON goal_comments(goal_id)`,
@@ -307,6 +312,67 @@ func listComments(db *sql.DB, goalID int64) ([]Comment, error) {
 		comments = append(comments, c)
 	}
 	return comments, rows.Err()
+}
+
+func addDependency(db *sql.DB, goalID, dependsOnID int64) error {
+	_, err := db.Exec(
+		`INSERT INTO goal_dependencies (goal_id, depends_on_id) VALUES (?, ?)`,
+		goalID, dependsOnID,
+	)
+	return err
+}
+
+func removeDependency(db *sql.DB, goalID, dependsOnID int64) error {
+	res, err := db.Exec(
+		`DELETE FROM goal_dependencies WHERE goal_id = ? AND depends_on_id = ?`,
+		goalID, dependsOnID,
+	)
+	if err != nil {
+		return err
+	}
+	n, err := res.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if n == 0 {
+		return sql.ErrNoRows
+	}
+	return nil
+}
+
+func listDependencies(db *sql.DB, goalID int64) ([]int64, error) {
+	rows, err := db.Query(
+		`SELECT depends_on_id FROM goal_dependencies WHERE goal_id = ? ORDER BY depends_on_id`,
+		goalID,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var ids []int64
+	for rows.Next() {
+		var id int64
+		if err := rows.Scan(&id); err != nil {
+			return nil, err
+		}
+		ids = append(ids, id)
+	}
+	return ids, rows.Err()
+}
+
+func hasUnmetDependencies(db *sql.DB, goalID int64) (bool, error) {
+	var count int
+	err := db.QueryRow(
+		`SELECT COUNT(*) FROM goal_dependencies gd
+		 JOIN goals g ON g.id = gd.depends_on_id
+		 WHERE gd.goal_id = ? AND g.status != 'merged'`,
+		goalID,
+	).Scan(&count)
+	if err != nil {
+		return false, err
+	}
+	return count > 0, nil
 }
 
 func updateGoalPR(db *sql.DB, id int64, pr int) error {
