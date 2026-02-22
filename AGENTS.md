@@ -42,7 +42,7 @@ Goal management scripts live in `scripts/goal-*/run` (Ruby, return JSON). Symlin
 | `goal-create` | Create a new goal (draft) |
 | `goal-queue` | Queue a draft goal |
 | `goal-start` | Mark a goal as running |
-| `goal-done` | Mark a goal as done |
+| `goal-submit` | Mark a goal as submitted (PR created) |
 | `goal-stuck` | Mark a goal as stuck |
 | `goal-retry` | Retry a stuck goal |
 | `goal-cancel` | Cancel a goal |
