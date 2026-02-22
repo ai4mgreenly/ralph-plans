@@ -125,7 +125,7 @@ Composite bundles in `.claude/skillsets/<name>.json`:
 
 Available skillsets:
 
-- `meta` — For improving the .claude/ system (preloads: jj, pipeline, goal-authoring, align)
+- `meta` — For improving the .claude/ system (preloads: jj, align)
 
 ### For Ralph
 
@@ -137,7 +137,7 @@ Goals are markdown files with required sections: `## Objective`, `## Reference`,
 
 Key principles: specify WHAT not HOW, reference liberally, make discovery explicit, include measurable acceptance criteria, trust Ralph to iterate.
 
-Full guide: `.claude/library/goal-authoring/SKILL.md`
+Full guide: available via the ralph-pipeline plugin.
 
 ## Common Tasks
 
