@@ -375,6 +375,26 @@ func hasUnmetDependencies(db *sql.DB, goalID int64) (bool, error) {
 	return count > 0, nil
 }
 
+func listSubmittedGoalsWithPR(db *sql.DB) ([]Goal, error) {
+	rows, err := db.Query(
+		`SELECT id, org, repo, title, body, status, retries, model, reasoning, pr, created_at, updated_at FROM goals WHERE status = 'submitted' AND pr IS NOT NULL`,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var goals []Goal
+	for rows.Next() {
+		var g Goal
+		if err := rows.Scan(&g.ID, &g.Org, &g.Repo, &g.Title, &g.Body, &g.Status, &g.Retries, &g.Model, &g.Reasoning, &g.PR, &g.CreatedAt, &g.UpdatedAt); err != nil {
+			return nil, err
+		}
+		goals = append(goals, g)
+	}
+	return goals, rows.Err()
+}
+
 func updateGoalPR(db *sql.DB, id int64, pr int) error {
 	now := time.Now().UTC().Format(time.RFC3339)
 	res, err := db.Exec(
