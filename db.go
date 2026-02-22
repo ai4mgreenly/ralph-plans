@@ -142,7 +142,9 @@ func migrate(db *sql.DB) error {
 		// Disable FKs so goal_transitions/goal_comments don't block the rename+drop
 		recreateStmts := []string{
 			`PRAGMA foreign_keys=OFF`,
+			`PRAGMA legacy_alter_table=ON`,
 			`ALTER TABLE goals RENAME TO goals_old`,
+			`PRAGMA legacy_alter_table=OFF`,
 			`CREATE TABLE goals (
 				id          INTEGER PRIMARY KEY AUTOINCREMENT,
 				org         TEXT    NOT NULL,
@@ -168,6 +170,45 @@ func migrate(db *sql.DB) error {
 			`PRAGMA foreign_keys=ON`,
 		}
 		for _, s := range recreateStmts {
+			if _, err := db.Exec(s); err != nil {
+				return err
+			}
+		}
+	}
+
+	// Fix FK references in goal_transitions/goal_comments if they point to goals_old.
+	// This happens when ALTER TABLE goals RENAME TO goals_old rewrites child table schemas
+	// (SQLite 3.26.0+ auto-updates FK references on rename). The legacy_alter_table pragma
+	// prevents this going forward, but existing databases need this one-time repair.
+	var transitionsSQL string
+	db.QueryRow(`SELECT sql FROM sqlite_master WHERE name='goal_transitions'`).Scan(&transitionsSQL)
+	if strings.Contains(transitionsSQL, "goals_old") {
+		fixFKStmts := []string{
+			`PRAGMA foreign_keys=OFF`,
+			`ALTER TABLE goal_transitions RENAME TO goal_transitions_old`,
+			`CREATE TABLE goal_transitions (
+				id          INTEGER PRIMARY KEY AUTOINCREMENT,
+				goal_id     INTEGER NOT NULL REFERENCES goals(id),
+				from_status TEXT,
+				to_status   TEXT    NOT NULL,
+				created_at  TEXT    NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ', 'now'))
+			)`,
+			`INSERT INTO goal_transitions SELECT * FROM goal_transitions_old`,
+			`DROP TABLE goal_transitions_old`,
+			`CREATE INDEX IF NOT EXISTS idx_transitions_goal_id ON goal_transitions(goal_id)`,
+			`ALTER TABLE goal_comments RENAME TO goal_comments_old`,
+			`CREATE TABLE goal_comments (
+				id          INTEGER PRIMARY KEY AUTOINCREMENT,
+				goal_id     INTEGER NOT NULL REFERENCES goals(id),
+				body        TEXT    NOT NULL,
+				created_at  TEXT    NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ', 'now'))
+			)`,
+			`INSERT INTO goal_comments SELECT * FROM goal_comments_old`,
+			`DROP TABLE goal_comments_old`,
+			`CREATE INDEX IF NOT EXISTS idx_comments_goal_id ON goal_comments(goal_id)`,
+			`PRAGMA foreign_keys=ON`,
+		}
+		for _, s := range fixFKStmts {
 			if _, err := db.Exec(s); err != nil {
 				return err
 			}
