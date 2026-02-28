@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"time"
 )
 
 func requireEnv(key string) string {
@@ -34,6 +35,19 @@ func main() {
 		log.Fatal(err)
 	}
 
+	logPath := filepath.Join(logDir, "ralph-plans.jsonl")
+	if info, err := os.Stat(logPath); err == nil && info.Size() > 0 {
+		archiveDir := filepath.Join(logDir, "archive")
+		if err := os.MkdirAll(archiveDir, 0755); err != nil {
+			log.Fatal(err)
+		}
+		ts := time.Now().Format("2006-01-02T15-04-05")
+		archivePath := filepath.Join(archiveDir, "ralph-plans-"+ts+".jsonl")
+		if err := os.Rename(logPath, archivePath); err != nil {
+			log.Fatal(err)
+		}
+	}
+
 	dbPath := filepath.Join(stateDir, "plans.db")
 	db, err := openDB(dbPath)
 	if err != nil {
@@ -41,7 +55,7 @@ func main() {
 	}
 	defer db.Close()
 
-	logFile, err := os.OpenFile(filepath.Join(logDir, "ralph-plans.jsonl"), os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0644)
+	logFile, err := os.OpenFile(logPath, os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0644)
 	if err != nil {
 		log.Fatal(err)
 	}
