@@ -51,7 +51,6 @@ func main() {
 
 	mux := http.NewServeMux()
 	registerRoutes(mux, db)
-	startPRPoller(db)
 
 	addr := plansHost + ":" + plansPort
 	fmt.Printf("ralph-plans listening on %s\n", addr)

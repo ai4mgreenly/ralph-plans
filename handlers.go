@@ -7,19 +7,16 @@ import (
 	"strconv"
 )
 
-var prCache = newPRCache()
-
 func registerRoutes(mux *http.ServeMux, db *sql.DB) {
 	mux.HandleFunc("POST /goals", handleCreateGoal(db))
 	mux.HandleFunc("GET /goals/{id}", handleGetGoal(db))
 	mux.HandleFunc("GET /goals", handleListGoals(db))
 	mux.HandleFunc("PATCH /goals/{id}/queue", handleQueue(db))
 	mux.HandleFunc("PATCH /goals/{id}/start", handleStart(db))
-	mux.HandleFunc("PATCH /goals/{id}/submitted", handleSubmitted(db))
+	mux.HandleFunc("PATCH /goals/{id}/done", handleDone(db))
 	mux.HandleFunc("PATCH /goals/{id}/stuck", handleStuck(db))
 	mux.HandleFunc("PATCH /goals/{id}/requeue", handleRequeue(db))
 	mux.HandleFunc("PATCH /goals/{id}/cancel", handleCancel(db))
-	mux.HandleFunc("PATCH /goals/{id}/pr", handleSetPR(db))
 	mux.HandleFunc("POST /goals/{id}/comments", handleCreateComment(db))
 	mux.HandleFunc("GET /goals/{id}/comments", handleListComments(db))
 	mux.HandleFunc("POST /goals/{id}/dependencies", handleAddDependency(db))
@@ -110,47 +107,6 @@ func handleGetGoal(db *sql.DB) http.HandlerFunc {
 			return
 		}
 
-		// If goal is submitted and has a PR, check GitHub for terminal state
-		if g.Status == "submitted" && g.PR != nil {
-			// Try to get from cache first
-			state, cached := prCache.get(g.Org, g.Repo, *g.PR)
-			if !cached {
-				// Not in cache, check GitHub
-				freshState, err := checkPRState(g.Org, g.Repo, *g.PR)
-				if err == nil {
-					// Successfully got PR state, cache it
-					state = freshState
-					prCache.set(g.Org, g.Repo, *g.PR, *freshState)
-				}
-				// If error, state remains nil and we don't transition
-			}
-
-			// If we have a state, check if PR is in terminal state
-			if state != nil {
-				var newStatus string
-				if state.Merged {
-					newStatus = "merged"
-				} else if state.Closed {
-					newStatus = "rejected"
-				}
-
-				// Transition if needed
-				if newStatus != "" {
-					// Use updateGoalStatus to transition from submitted to merged/rejected
-					if err := updateGoalStatus(db, id, "submitted", newStatus); err == nil {
-						// Successfully transitioned, update our in-memory goal
-						g.Status = newStatus
-						// Refresh from DB to get updated timestamp
-						if freshGoal, err := getGoal(db, id); err == nil {
-							g = freshGoal
-						}
-					}
-					// If transition fails (e.g., already transitioned by another request),
-					// we'll just return the current state
-				}
-			}
-		}
-
 		writeJSON(w, 200, map[string]any{
 			"ok":         true,
 			"id":         g.ID,
@@ -161,7 +117,6 @@ func handleGetGoal(db *sql.DB) http.HandlerFunc {
 			"status":     g.Status,
 			"model":      g.Model,
 			"reasoning":  g.Reasoning,
-			"pr":         g.PR,
 			"created_at": g.CreatedAt,
 			"updated_at": g.UpdatedAt,
 		})
@@ -272,8 +227,8 @@ func handleStart(db *sql.DB) http.HandlerFunc {
 	}
 }
 
-func handleSubmitted(db *sql.DB) http.HandlerFunc {
-	return transitionHandler(db, "running", "submitted")
+func handleDone(db *sql.DB) http.HandlerFunc {
+	return transitionHandler(db, "running", "done")
 }
 
 func handleStuck(db *sql.DB) http.HandlerFunc {
@@ -363,40 +318,6 @@ func handleListComments(db *sql.DB) http.HandlerFunc {
 			comments = []Comment{}
 		}
 		writeJSON(w, 200, map[string]any{"ok": true, "items": comments})
-	}
-}
-
-func handleSetPR(db *sql.DB) http.HandlerFunc {
-	return func(w http.ResponseWriter, r *http.Request) {
-		id, err := goalIDFromRequest(r)
-		if err != nil {
-			writeErr(w, 400, "invalid goal id")
-			return
-		}
-		// Verify goal exists
-		if _, err := getGoal(db, id); err == sql.ErrNoRows {
-			writeErr(w, 404, "goal not found")
-			return
-		} else if err != nil {
-			writeErr(w, 500, "failed to get goal")
-			return
-		}
-		var req struct {
-			PR int `json:"pr"`
-		}
-		if err := readJSON(r, &req); err != nil {
-			writeErr(w, 400, "invalid JSON")
-			return
-		}
-		if req.PR <= 0 {
-			writeErr(w, 400, "pr must be a positive integer")
-			return
-		}
-		if err := updateGoalPR(db, id, req.PR); err != nil {
-			writeErr(w, 500, "failed to update pr")
-			return
-		}
-		writeJSON(w, 200, map[string]any{"ok": true})
 	}
 }
 
@@ -521,7 +442,7 @@ func handleListDependencies(db *sql.DB) http.HandlerFunc {
 	}
 }
 
-// transitionHandler creates a handler for simple from→to status transitions.
+// transitionHandler creates a handler for simple from->to status transitions.
 func transitionHandler(db *sql.DB, from, to string) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		id, err := goalIDFromRequest(r)

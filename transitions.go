@@ -1,11 +1,10 @@
 package main
 
 var validTransitions = map[string][]string{
-	"draft":     {"queued", "cancelled"},
-	"queued":    {"running", "cancelled"},
-	"running":   {"submitted", "stuck", "cancelled"},
-	"stuck":     {"queued", "cancelled"},
-	"submitted": {"merged", "rejected"},
+	"draft":   {"queued", "cancelled"},
+	"queued":  {"running", "cancelled"},
+	"running": {"done", "stuck", "cancelled"},
+	"stuck":   {"queued", "cancelled"},
 }
 
 func canTransition(from, to string) bool {
@@ -22,5 +21,5 @@ func canTransition(from, to string) bool {
 }
 
 func isTerminal(status string) bool {
-	return status == "submitted" || status == "merged" || status == "rejected" || status == "cancelled"
+	return status == "done" || status == "cancelled"
 }

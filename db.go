@@ -18,7 +18,6 @@ type Goal struct {
 	Retries   int     `json:"retries"`
 	Model     *string `json:"model"`
 	Reasoning *string `json:"reasoning"`
-	PR        *int    `json:"pr"`
 	CreatedAt string  `json:"created_at"`
 	UpdatedAt string  `json:"updated_at"`
 }
@@ -31,7 +30,6 @@ type GoalSummary struct {
 	Status    string  `json:"status"`
 	Model     *string `json:"model"`
 	Reasoning *string `json:"reasoning"`
-	PR        *int    `json:"pr"`
 }
 
 type Comment struct {
@@ -76,7 +74,7 @@ func migrate(db *sql.DB) error {
 			title       TEXT    NOT NULL,
 			body        TEXT    NOT NULL,
 			status      TEXT    NOT NULL DEFAULT 'draft'
-			            CHECK (status IN ('draft','queued','running','submitted','merged','rejected','stuck','cancelled')),
+			            CHECK (status IN ('draft','queued','running','done','stuck','cancelled')),
 			retries     INTEGER NOT NULL DEFAULT 0,
 			model       TEXT    CHECK (model IS NULL OR model IN ('haiku','sonnet','opus')),
 			reasoning   TEXT    CHECK (reasoning IS NULL OR reasoning IN ('none','low','med','high')),
@@ -112,12 +110,10 @@ func migrate(db *sql.DB) error {
 		}
 	}
 
-	// Add model, reasoning, and pr columns to existing tables (for backwards compatibility)
-	// SQLite allows ALTER TABLE ADD COLUMN with CHECK constraints that only reference the added column
+	// Add model and reasoning columns to existing tables (for backwards compatibility)
 	alterStmts := []string{
 		`ALTER TABLE goals ADD COLUMN model TEXT CHECK (model IS NULL OR model IN ('haiku','sonnet','opus'))`,
 		`ALTER TABLE goals ADD COLUMN reasoning TEXT CHECK (reasoning IS NULL OR reasoning IN ('none','low','med','high'))`,
-		`ALTER TABLE goals ADD COLUMN pr INTEGER`,
 	}
 	for _, s := range alterStmts {
 		_, err := db.Exec(s)
@@ -130,12 +126,12 @@ func migrate(db *sql.DB) error {
 		}
 	}
 
-	// Recreate table if constraint is outdated (e.g. still has 'done'/'reviewing')
+	// Recreate table if constraint is outdated (e.g. still has 'submitted'/'merged'/'rejected')
 	tx, err := db.Begin()
 	if err != nil {
 		return err
 	}
-	_, testErr := tx.Exec(`INSERT INTO goals (org, repo, title, body, status) VALUES ('__test', '__test', '__test', '__test', 'submitted')`)
+	_, testErr := tx.Exec(`INSERT INTO goals (org, repo, title, body, status) VALUES ('__test', '__test', '__test', '__test', 'done')`)
 	tx.Rollback()
 
 	if testErr != nil && strings.Contains(testErr.Error(), "CHECK constraint failed") {
@@ -152,18 +148,21 @@ func migrate(db *sql.DB) error {
 				title       TEXT    NOT NULL,
 				body        TEXT    NOT NULL,
 				status      TEXT    NOT NULL DEFAULT 'draft'
-				            CHECK (status IN ('draft','queued','running','submitted','merged','rejected','stuck','cancelled')),
+				            CHECK (status IN ('draft','queued','running','done','stuck','cancelled')),
 				retries     INTEGER NOT NULL DEFAULT 0,
 				model       TEXT    CHECK (model IS NULL OR model IN ('haiku','sonnet','opus')),
 				reasoning   TEXT    CHECK (reasoning IS NULL OR reasoning IN ('none','low','med','high')),
-				pr          INTEGER,
 				created_at  TEXT    NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ', 'now')),
 				updated_at  TEXT    NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ', 'now'))
 			)`,
-			`INSERT INTO goals (id, org, repo, title, body, status, retries, model, reasoning, pr, created_at, updated_at)
+			`INSERT INTO goals (id, org, repo, title, body, status, retries, model, reasoning, created_at, updated_at)
 			 SELECT id, org, repo, title, body,
-			        CASE WHEN status IN ('done','reviewing') THEN 'submitted' ELSE status END,
-			        retries, model, reasoning, pr, created_at, updated_at FROM goals_old`,
+			        CASE
+			            WHEN status IN ('submitted','merged') THEN 'done'
+			            WHEN status = 'rejected' THEN 'cancelled'
+			            ELSE status
+			        END,
+			        retries, model, reasoning, created_at, updated_at FROM goals_old`,
 			`DROP TABLE goals_old`,
 			`CREATE INDEX IF NOT EXISTS idx_goals_status ON goals(status)`,
 			`CREATE INDEX IF NOT EXISTS idx_goals_org_repo ON goals(org, repo)`,
@@ -177,9 +176,6 @@ func migrate(db *sql.DB) error {
 	}
 
 	// Fix FK references in goal_transitions/goal_comments if they point to goals_old.
-	// This happens when ALTER TABLE goals RENAME TO goals_old rewrites child table schemas
-	// (SQLite 3.26.0+ auto-updates FK references on rename). The legacy_alter_table pragma
-	// prevents this going forward, but existing databases need this one-time repair.
 	var transitionsSQL string
 	db.QueryRow(`SELECT sql FROM sqlite_master WHERE name='goal_transitions'`).Scan(&transitionsSQL)
 	if strings.Contains(transitionsSQL, "goals_old") {
@@ -231,10 +227,10 @@ func createGoal(db *sql.DB, org, repo, title, body string, model, reasoning *str
 
 func getGoal(db *sql.DB, id int64) (*Goal, error) {
 	row := db.QueryRow(
-		`SELECT id, org, repo, title, body, status, retries, model, reasoning, pr, created_at, updated_at FROM goals WHERE id = ?`, id,
+		`SELECT id, org, repo, title, body, status, retries, model, reasoning, created_at, updated_at FROM goals WHERE id = ?`, id,
 	)
 	var g Goal
-	err := row.Scan(&g.ID, &g.Org, &g.Repo, &g.Title, &g.Body, &g.Status, &g.Retries, &g.Model, &g.Reasoning, &g.PR, &g.CreatedAt, &g.UpdatedAt)
+	err := row.Scan(&g.ID, &g.Org, &g.Repo, &g.Title, &g.Body, &g.Status, &g.Retries, &g.Model, &g.Reasoning, &g.CreatedAt, &g.UpdatedAt)
 	if err != nil {
 		return nil, err
 	}
@@ -268,7 +264,7 @@ func listGoals(db *sql.DB, status, org, repo string, limit, offset int) ([]GoalS
 	}
 
 	// Build main query
-	query := `SELECT id, org, repo, title, status, model, reasoning, pr FROM goals ` + whereClause + ` ORDER BY id DESC`
+	query := `SELECT id, org, repo, title, status, model, reasoning FROM goals ` + whereClause + ` ORDER BY id DESC`
 	if limit > 0 {
 		query += ` LIMIT ? OFFSET ?`
 		args = append(args, limit, offset)
@@ -283,7 +279,7 @@ func listGoals(db *sql.DB, status, org, repo string, limit, offset int) ([]GoalS
 	var goals []GoalSummary
 	for rows.Next() {
 		var g GoalSummary
-		if err := rows.Scan(&g.ID, &g.Org, &g.Repo, &g.Title, &g.Status, &g.Model, &g.Reasoning, &g.PR); err != nil {
+		if err := rows.Scan(&g.ID, &g.Org, &g.Repo, &g.Title, &g.Status, &g.Model, &g.Reasoning); err != nil {
 			return nil, 0, err
 		}
 		goals = append(goals, g)
@@ -407,50 +403,11 @@ func hasUnmetDependencies(db *sql.DB, goalID int64) (bool, error) {
 	err := db.QueryRow(
 		`SELECT COUNT(*) FROM goal_dependencies gd
 		 JOIN goals g ON g.id = gd.depends_on_id
-		 WHERE gd.goal_id = ? AND g.status != 'merged'`,
+		 WHERE gd.goal_id = ? AND g.status != 'done'`,
 		goalID,
 	).Scan(&count)
 	if err != nil {
 		return false, err
 	}
 	return count > 0, nil
-}
-
-func listSubmittedGoalsWithPR(db *sql.DB) ([]Goal, error) {
-	rows, err := db.Query(
-		`SELECT id, org, repo, title, body, status, retries, model, reasoning, pr, created_at, updated_at FROM goals WHERE status = 'submitted' AND pr IS NOT NULL`,
-	)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-
-	var goals []Goal
-	for rows.Next() {
-		var g Goal
-		if err := rows.Scan(&g.ID, &g.Org, &g.Repo, &g.Title, &g.Body, &g.Status, &g.Retries, &g.Model, &g.Reasoning, &g.PR, &g.CreatedAt, &g.UpdatedAt); err != nil {
-			return nil, err
-		}
-		goals = append(goals, g)
-	}
-	return goals, rows.Err()
-}
-
-func updateGoalPR(db *sql.DB, id int64, pr int) error {
-	now := time.Now().UTC().Format(time.RFC3339)
-	res, err := db.Exec(
-		`UPDATE goals SET pr = ?, updated_at = ? WHERE id = ?`,
-		pr, now, id,
-	)
-	if err != nil {
-		return err
-	}
-	n, err := res.RowsAffected()
-	if err != nil {
-		return err
-	}
-	if n == 0 {
-		return sql.ErrNoRows
-	}
-	return nil
 }

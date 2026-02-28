@@ -26,7 +26,7 @@ func TestPagination(t *testing.T) {
 		}
 	}
 
-	// Set status to submitted for easier filtering
+	// Transition all goals to done for easier filtering
 	for i := 1; i <= 15; i++ {
 		err := updateGoalStatus(db, int64(i), "draft", "queued")
 		if err != nil {
@@ -36,7 +36,7 @@ func TestPagination(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		err = updateGoalStatus(db, int64(i), "running", "submitted")
+		err = updateGoalStatus(db, int64(i), "running", "done")
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -47,7 +47,7 @@ func TestPagination(t *testing.T) {
 	registerRoutes(mux, db)
 
 	t.Run("unpaginated returns all results", func(t *testing.T) {
-		req := httptest.NewRequest("GET", "/goals?status=submitted", nil)
+		req := httptest.NewRequest("GET", "/goals?status=done", nil)
 		w := httptest.NewRecorder()
 		mux.ServeHTTP(w, req)
 
@@ -82,7 +82,7 @@ func TestPagination(t *testing.T) {
 	})
 
 	t.Run("paginated first page", func(t *testing.T) {
-		req := httptest.NewRequest("GET", "/goals?status=submitted&page=1&per_page=5", nil)
+		req := httptest.NewRequest("GET", "/goals?status=done&page=1&per_page=5", nil)
 		w := httptest.NewRecorder()
 		mux.ServeHTTP(w, req)
 
@@ -116,7 +116,7 @@ func TestPagination(t *testing.T) {
 	})
 
 	t.Run("paginated second page", func(t *testing.T) {
-		req := httptest.NewRequest("GET", "/goals?status=submitted&page=2&per_page=5", nil)
+		req := httptest.NewRequest("GET", "/goals?status=done&page=2&per_page=5", nil)
 		w := httptest.NewRecorder()
 		mux.ServeHTTP(w, req)
 
@@ -147,7 +147,7 @@ func TestPagination(t *testing.T) {
 	})
 
 	t.Run("per_page defaults to 20", func(t *testing.T) {
-		req := httptest.NewRequest("GET", "/goals?status=submitted&page=1", nil)
+		req := httptest.NewRequest("GET", "/goals?status=done&page=1", nil)
 		w := httptest.NewRecorder()
 		mux.ServeHTTP(w, req)
 
@@ -160,7 +160,7 @@ func TestPagination(t *testing.T) {
 	})
 
 	t.Run("per_page clamped to 100", func(t *testing.T) {
-		req := httptest.NewRequest("GET", "/goals?status=submitted&page=1&per_page=200", nil)
+		req := httptest.NewRequest("GET", "/goals?status=done&page=1&per_page=200", nil)
 		w := httptest.NewRecorder()
 		mux.ServeHTTP(w, req)
 
