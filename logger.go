@@ -51,6 +51,10 @@ func (rl *requestLogger) wrap(next http.Handler) http.Handler {
 		sw := &statusWriter{ResponseWriter: w, status: 200}
 		next.ServeHTTP(sw, r)
 
+		if r.Method == http.MethodGet || r.Method == http.MethodHead {
+			return
+		}
+
 		entry := logEntry{
 			Time:       start.UTC().Format(time.RFC3339),
 			Method:     r.Method,
