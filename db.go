@@ -138,6 +138,7 @@ func migrate(db *sql.DB) error {
 		// Disable FKs so goal_transitions/goal_comments don't block the rename+drop
 		recreateStmts := []string{
 			`PRAGMA foreign_keys=OFF`,
+			`DROP TABLE IF EXISTS goals_old`,
 			`PRAGMA legacy_alter_table=ON`,
 			`ALTER TABLE goals RENAME TO goals_old`,
 			`PRAGMA legacy_alter_table=OFF`,
