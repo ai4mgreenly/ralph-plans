@@ -4,6 +4,32 @@ Goal storage and state machine for the Ralph pipeline. A Go HTTP API backed by S
 
 Philosophy: deliberately minimalist. Go standard library HTTP, SQLite for persistence, no ORM or framework.
 
+## Default Workflow: Goals-First
+
+**All code changes are made through goals. This is not a suggestion — it is the default behavior.**
+
+When Ralph is asked to make any change to this codebase, the correct response is to create a goal and queue it for execution. Local edits are a rare exception, not the norm.
+
+### The Rule
+
+- **Default: create a goal.** Any request to add a feature, fix a bug, refactor code, update configuration, or otherwise modify this repository should be expressed as a goal.
+- **Exception: explicit local instruction only.** Local edits are permitted only when the user has given extremely explicit instructions to do so.
+
+### What Counts as Explicit Instruction
+
+These phrasings authorize a local change:
+
+- "make this change now"
+- "edit this file directly"
+- "do this locally"
+- "don't create a goal, just fix it"
+
+Vague or ambiguous requests do not authorize local edits. If the instruction could reasonably be interpreted as "create a goal for this", treat it that way.
+
+### When in Doubt
+
+Default to creating and queuing a goal. A goal that turns out to be unnecessary is a minor inconvenience. A local edit that bypasses the pipeline creates untracked, unreviewed changes.
+
 ## Architecture
 
 Part of a multi-service system:
