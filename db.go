@@ -238,7 +238,7 @@ func getGoal(db *sql.DB, id int64) (*Goal, error) {
 	return &g, nil
 }
 
-func listGoals(db *sql.DB, status, org, repo string, limit, offset int) ([]GoalSummary, int, error) {
+func listGoals(db *sql.DB, status, org, repo string, ready bool, limit, offset int) ([]GoalSummary, int, error) {
 	// Build WHERE clause
 	whereClause := `WHERE 1=1`
 	var args []any
@@ -253,6 +253,13 @@ func listGoals(db *sql.DB, status, org, repo string, limit, offset int) ([]GoalS
 	if repo != "" {
 		whereClause += ` AND repo = ?`
 		args = append(args, repo)
+	}
+	if ready {
+		whereClause += ` AND NOT EXISTS (
+			SELECT 1 FROM goal_dependencies gd
+			JOIN goals g2 ON g2.id = gd.depends_on_id
+			WHERE gd.goal_id = goals.id AND g2.status != 'done'
+		)`
 	}
 
 	// Get total count when pagination is requested

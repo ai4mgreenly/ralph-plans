@@ -128,6 +128,7 @@ func handleListGoals(db *sql.DB) http.HandlerFunc {
 		status := r.URL.Query().Get("status")
 		org := r.URL.Query().Get("org")
 		repo := r.URL.Query().Get("repo")
+		ready := r.URL.Query().Get("ready") == "true"
 
 		// Parse pagination parameters
 		pageStr := r.URL.Query().Get("page")
@@ -163,7 +164,7 @@ func handleListGoals(db *sql.DB) http.HandlerFunc {
 			offset = (page - 1) * perPage
 		}
 
-		goals, total, err := listGoals(db, status, org, repo, limit, offset)
+		goals, total, err := listGoals(db, status, org, repo, ready, limit, offset)
 		if err != nil {
 			writeErr(w, 500, "failed to list goals")
 			return
