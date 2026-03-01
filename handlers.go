@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"strconv"
+	"strings"
 )
 
 func registerRoutes(mux *http.ServeMux, db *sql.DB) {
@@ -22,6 +23,11 @@ func registerRoutes(mux *http.ServeMux, db *sql.DB) {
 	mux.HandleFunc("POST /goals/{id}/dependencies", handleAddDependency(db))
 	mux.HandleFunc("DELETE /goals/{id}/dependencies/{dep_id}", handleRemoveDependency(db))
 	mux.HandleFunc("GET /goals/{id}/dependencies", handleListDependencies(db))
+	mux.HandleFunc("POST /goals/{id}/attachments", handleCreateAttachment(db))
+	mux.HandleFunc("GET /goals/{id}/attachments", handleListAttachments(db))
+	mux.HandleFunc("GET /goals/{id}/attachments/{att_id}", handleGetAttachment(db))
+	mux.HandleFunc("PATCH /goals/{id}/attachments/{att_id}", handleEditAttachment(db))
+	mux.HandleFunc("DELETE /goals/{id}/attachments/{att_id}", handleDeleteAttachment(db))
 }
 
 // --- helpers ---
@@ -440,6 +446,217 @@ func handleListDependencies(db *sql.DB) http.HandlerFunc {
 			deps = []int64{}
 		}
 		writeJSON(w, 200, map[string]any{"ok": true, "items": deps})
+	}
+}
+
+func handleCreateAttachment(db *sql.DB) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		id, err := goalIDFromRequest(r)
+		if err != nil {
+			writeErr(w, 400, "invalid goal id")
+			return
+		}
+		if _, err := getGoal(db, id); err == sql.ErrNoRows {
+			writeErr(w, 404, "goal not found")
+			return
+		} else if err != nil {
+			writeErr(w, 500, "failed to get goal")
+			return
+		}
+		var req struct {
+			Name string `json:"name"`
+			Body string `json:"body"`
+		}
+		if err := readJSON(r, &req); err != nil {
+			writeErr(w, 400, "invalid JSON")
+			return
+		}
+		if req.Name == "" {
+			writeErr(w, 400, "name is required")
+			return
+		}
+		if req.Body == "" {
+			writeErr(w, 400, "body is required")
+			return
+		}
+		aid, err := createAttachment(db, id, req.Name, req.Body)
+		if err != nil {
+			if strings.Contains(err.Error(), "UNIQUE constraint failed") {
+				writeErr(w, 409, "attachment name already exists for this goal")
+				return
+			}
+			writeErr(w, 500, "failed to create attachment")
+			return
+		}
+		writeJSON(w, 201, map[string]any{"ok": true, "id": aid, "goal_id": id})
+	}
+}
+
+func handleListAttachments(db *sql.DB) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		id, err := goalIDFromRequest(r)
+		if err != nil {
+			writeErr(w, 400, "invalid goal id")
+			return
+		}
+		if _, err := getGoal(db, id); err == sql.ErrNoRows {
+			writeErr(w, 404, "goal not found")
+			return
+		} else if err != nil {
+			writeErr(w, 500, "failed to get goal")
+			return
+		}
+		attachments, err := listAttachments(db, id)
+		if err != nil {
+			writeErr(w, 500, "failed to list attachments")
+			return
+		}
+		if attachments == nil {
+			attachments = []AttachmentSummary{}
+		}
+		writeJSON(w, 200, map[string]any{"ok": true, "items": attachments})
+	}
+}
+
+func handleGetAttachment(db *sql.DB) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		id, err := goalIDFromRequest(r)
+		if err != nil {
+			writeErr(w, 400, "invalid goal id")
+			return
+		}
+		if _, err := getGoal(db, id); err == sql.ErrNoRows {
+			writeErr(w, 404, "goal not found")
+			return
+		} else if err != nil {
+			writeErr(w, 500, "failed to get goal")
+			return
+		}
+		attIDStr := r.PathValue("att_id")
+		attID, err := strconv.ParseInt(attIDStr, 10, 64)
+		if err != nil {
+			writeErr(w, 400, "invalid att_id")
+			return
+		}
+		a, err := getAttachment(db, attID)
+		if err == sql.ErrNoRows {
+			writeErr(w, 404, "attachment not found")
+			return
+		}
+		if err != nil {
+			writeErr(w, 500, "failed to get attachment")
+			return
+		}
+		writeJSON(w, 200, map[string]any{
+			"ok":         true,
+			"id":         a.ID,
+			"goal_id":    a.GoalID,
+			"name":       a.Name,
+			"body":       a.Body,
+			"created_at": a.CreatedAt,
+			"updated_at": a.UpdatedAt,
+		})
+	}
+}
+
+func handleEditAttachment(db *sql.DB) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		id, err := goalIDFromRequest(r)
+		if err != nil {
+			writeErr(w, 400, "invalid goal id")
+			return
+		}
+		if _, err := getGoal(db, id); err == sql.ErrNoRows {
+			writeErr(w, 404, "goal not found")
+			return
+		} else if err != nil {
+			writeErr(w, 500, "failed to get goal")
+			return
+		}
+		attIDStr := r.PathValue("att_id")
+		attID, err := strconv.ParseInt(attIDStr, 10, 64)
+		if err != nil {
+			writeErr(w, 400, "invalid att_id")
+			return
+		}
+		a, err := getAttachment(db, attID)
+		if err == sql.ErrNoRows {
+			writeErr(w, 404, "attachment not found")
+			return
+		}
+		if err != nil {
+			writeErr(w, 500, "failed to get attachment")
+			return
+		}
+		var req struct {
+			Body   *string `json:"body"`
+			OldStr *string `json:"old_str"`
+			NewStr *string `json:"new_str"`
+		}
+		if err := readJSON(r, &req); err != nil {
+			writeErr(w, 400, "invalid JSON")
+			return
+		}
+		var newBody string
+		if req.OldStr != nil {
+			// Substring edit mode
+			newStr := ""
+			if req.NewStr != nil {
+				newStr = *req.NewStr
+			}
+			count := strings.Count(a.Body, *req.OldStr)
+			if count == 0 {
+				writeErr(w, 400, "old_str not found in attachment body")
+				return
+			}
+			if count > 1 {
+				writeErr(w, 400, "old_str appears more than once in attachment body")
+				return
+			}
+			newBody = strings.Replace(a.Body, *req.OldStr, newStr, 1)
+		} else if req.Body != nil {
+			// Full replacement mode
+			newBody = *req.Body
+		} else {
+			writeErr(w, 400, "body or old_str/new_str is required")
+			return
+		}
+		if err := editAttachmentBody(db, attID, newBody); err != nil {
+			writeErr(w, 500, "failed to edit attachment")
+			return
+		}
+		writeJSON(w, 200, map[string]any{"ok": true})
+	}
+}
+
+func handleDeleteAttachment(db *sql.DB) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		id, err := goalIDFromRequest(r)
+		if err != nil {
+			writeErr(w, 400, "invalid goal id")
+			return
+		}
+		if _, err := getGoal(db, id); err == sql.ErrNoRows {
+			writeErr(w, 404, "goal not found")
+			return
+		} else if err != nil {
+			writeErr(w, 500, "failed to get goal")
+			return
+		}
+		attIDStr := r.PathValue("att_id")
+		attID, err := strconv.ParseInt(attIDStr, 10, 64)
+		if err != nil {
+			writeErr(w, 400, "invalid att_id")
+			return
+		}
+		if err := deleteAttachment(db, attID); err == sql.ErrNoRows {
+			writeErr(w, 404, "attachment not found")
+			return
+		} else if err != nil {
+			writeErr(w, 500, "failed to delete attachment")
+			return
+		}
+		writeJSON(w, 200, map[string]any{"ok": true})
 	}
 }
 

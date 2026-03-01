@@ -39,6 +39,23 @@ type Comment struct {
 	CreatedAt string `json:"created_at"`
 }
 
+type Attachment struct {
+	ID        int64  `json:"id"`
+	GoalID    int64  `json:"goal_id"`
+	Name      string `json:"name"`
+	Body      string `json:"body"`
+	CreatedAt string `json:"created_at"`
+	UpdatedAt string `json:"updated_at"`
+}
+
+type AttachmentSummary struct {
+	ID        int64  `json:"id"`
+	GoalID    int64  `json:"goal_id"`
+	Name      string `json:"name"`
+	CreatedAt string `json:"created_at"`
+	UpdatedAt string `json:"updated_at"`
+}
+
 func openDB(path string) (*sql.DB, error) {
 	db, err := sql.Open("sqlite", path)
 	if err != nil {
@@ -99,10 +116,20 @@ func migrate(db *sql.DB) error {
 			depends_on_id  INTEGER NOT NULL REFERENCES goals(id),
 			PRIMARY KEY (goal_id, depends_on_id)
 		)`,
+		`CREATE TABLE IF NOT EXISTS goal_attachments (
+			id          INTEGER PRIMARY KEY AUTOINCREMENT,
+			goal_id     INTEGER NOT NULL REFERENCES goals(id),
+			name        TEXT    NOT NULL,
+			body        TEXT    NOT NULL,
+			created_at  TEXT    NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ', 'now')),
+			updated_at  TEXT    NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ', 'now')),
+			UNIQUE (goal_id, name)
+		)`,
 		`CREATE INDEX IF NOT EXISTS idx_goals_status        ON goals(status)`,
 		`CREATE INDEX IF NOT EXISTS idx_goals_org_repo      ON goals(org, repo)`,
 		`CREATE INDEX IF NOT EXISTS idx_comments_goal_id    ON goal_comments(goal_id)`,
 		`CREATE INDEX IF NOT EXISTS idx_transitions_goal_id ON goal_transitions(goal_id)`,
+		`CREATE INDEX IF NOT EXISTS idx_attachments_goal_id ON goal_attachments(goal_id)`,
 	}
 	for _, s := range stmts {
 		if _, err := db.Exec(s); err != nil {
@@ -404,6 +431,83 @@ func listDependencies(db *sql.DB, goalID int64) ([]int64, error) {
 		ids = append(ids, id)
 	}
 	return ids, rows.Err()
+}
+
+func createAttachment(db *sql.DB, goalID int64, name, body string) (int64, error) {
+	res, err := db.Exec(
+		`INSERT INTO goal_attachments (goal_id, name, body) VALUES (?, ?, ?)`,
+		goalID, name, body,
+	)
+	if err != nil {
+		return 0, err
+	}
+	return res.LastInsertId()
+}
+
+func getAttachment(db *sql.DB, id int64) (*Attachment, error) {
+	row := db.QueryRow(
+		`SELECT id, goal_id, name, body, created_at, updated_at FROM goal_attachments WHERE id = ?`, id,
+	)
+	var a Attachment
+	err := row.Scan(&a.ID, &a.GoalID, &a.Name, &a.Body, &a.CreatedAt, &a.UpdatedAt)
+	if err != nil {
+		return nil, err
+	}
+	return &a, nil
+}
+
+func listAttachments(db *sql.DB, goalID int64) ([]AttachmentSummary, error) {
+	rows, err := db.Query(
+		`SELECT id, goal_id, name, created_at, updated_at FROM goal_attachments WHERE goal_id = ? ORDER BY id`, goalID,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var attachments []AttachmentSummary
+	for rows.Next() {
+		var a AttachmentSummary
+		if err := rows.Scan(&a.ID, &a.GoalID, &a.Name, &a.CreatedAt, &a.UpdatedAt); err != nil {
+			return nil, err
+		}
+		attachments = append(attachments, a)
+	}
+	return attachments, rows.Err()
+}
+
+func editAttachmentBody(db *sql.DB, id int64, newBody string) error {
+	now := time.Now().UTC().Format(time.RFC3339)
+	res, err := db.Exec(
+		`UPDATE goal_attachments SET body = ?, updated_at = ? WHERE id = ?`,
+		newBody, now, id,
+	)
+	if err != nil {
+		return err
+	}
+	n, err := res.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if n == 0 {
+		return sql.ErrNoRows
+	}
+	return nil
+}
+
+func deleteAttachment(db *sql.DB, id int64) error {
+	res, err := db.Exec(`DELETE FROM goal_attachments WHERE id = ?`, id)
+	if err != nil {
+		return err
+	}
+	n, err := res.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if n == 0 {
+		return sql.ErrNoRows
+	}
+	return nil
 }
 
 func hasUnmetDependencies(db *sql.DB, goalID int64) (bool, error) {
