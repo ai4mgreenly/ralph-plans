@@ -12,7 +12,6 @@ import (
 )
 
 type requestLogger struct {
-	f          *os.File
 	mu         sync.Mutex
 	corsOrigin string
 }
@@ -75,7 +74,7 @@ func (rl *requestLogger) wrap(next http.Handler) http.Handler {
 		defer rl.mu.Unlock()
 		data, err := json.Marshal(entry)
 		if err == nil {
-			fmt.Fprintf(rl.f, "%s\n", data)
+			fmt.Fprintf(os.Stdout, "%s\n", data)
 		}
 	})
 }
