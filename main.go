@@ -48,7 +48,11 @@ func main() {
 		}
 	}
 
-	dbPath := filepath.Join(stateDir, "plans.db")
+	dbFilename := "plans.db"
+	if v := os.Getenv("RALPH_PLANS_DB"); v != "" {
+		dbFilename = v
+	}
+	dbPath := filepath.Join(stateDir, dbFilename)
 	db, err := openDB(dbPath)
 	if err != nil {
 		log.Fatal(err)
