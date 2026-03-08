@@ -44,7 +44,13 @@ func main() {
 	}
 	defer db.Close()
 
-	lg := &requestLogger{corsOrigin: "http://" + showsHost + ":" + showsPort}
+	corsOrigins := []string{"http://" + showsHost + ":" + showsPort}
+	herdsHost := os.Getenv("RALPH_HERDS_HOST")
+	herdsPort := os.Getenv("RALPH_HERDS_PORT")
+	if herdsHost != "" && herdsPort != "" {
+		corsOrigins = append(corsOrigins, "http://"+herdsHost+":"+herdsPort)
+	}
+	lg := &requestLogger{corsOrigins: corsOrigins}
 
 	mux := http.NewServeMux()
 	registerRoutes(mux, db)

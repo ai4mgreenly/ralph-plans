@@ -12,8 +12,8 @@ import (
 )
 
 type requestLogger struct {
-	mu         sync.Mutex
-	corsOrigin string
+	mu          sync.Mutex
+	corsOrigins []string
 }
 
 type logEntry struct {
@@ -37,7 +37,13 @@ func (w *statusWriter) WriteHeader(code int) {
 
 func (rl *requestLogger) wrap(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Access-Control-Allow-Origin", rl.corsOrigin)
+		origin := r.Header.Get("Origin")
+		for _, allowed := range rl.corsOrigins {
+			if origin == allowed {
+				w.Header().Set("Access-Control-Allow-Origin", origin)
+				break
+			}
+		}
 		w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PATCH")
 		w.Header().Set("Access-Control-Allow-Headers", "Content-Type")
 
