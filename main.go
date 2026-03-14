@@ -17,7 +17,10 @@ func requireEnv(key string) string {
 }
 
 func main() {
-	plansHost := requireEnv("RALPH_PLANS_HOST")
+	plansHost := os.Getenv("RALPH_PLANS_HOST")
+	if plansHost == "" {
+		plansHost = "localhost"
+	}
 	plansPort := requireEnv("RALPH_PLANS_PORT")
 	showsHost := requireEnv("RALPH_SHOWS_HOST")
 	showsPort := requireEnv("RALPH_SHOWS_PORT")
