@@ -121,6 +121,7 @@ func handleGetGoal(db *sql.DB) http.HandlerFunc {
 			"title":      g.Title,
 			"body":       g.Body,
 			"status":     g.Status,
+			"retries":    g.Retries,
 			"model":      g.Model,
 			"reasoning":  g.Reasoning,
 			"created_at": g.CreatedAt,
@@ -243,7 +244,23 @@ func handleStuck(db *sql.DB) http.HandlerFunc {
 }
 
 func handleRequeue(db *sql.DB) http.HandlerFunc {
-	return transitionHandler(db, "stuck", "queued")
+	return func(w http.ResponseWriter, r *http.Request) {
+		id, err := goalIDFromRequest(r)
+		if err != nil {
+			writeErr(w, 400, "invalid goal id")
+			return
+		}
+		err = requeueGoal(db, id)
+		if err == sql.ErrNoRows {
+			writeErr(w, 409, "goal not found or not in stuck state")
+			return
+		}
+		if err != nil {
+			writeErr(w, 500, "failed to requeue goal")
+			return
+		}
+		writeJSON(w, 200, map[string]any{"ok": true})
+	}
 }
 
 func handleCancel(db *sql.DB) http.HandlerFunc {

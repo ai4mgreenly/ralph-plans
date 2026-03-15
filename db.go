@@ -355,6 +355,39 @@ func updateGoalStatus(db *sql.DB, id int64, from, to string) error {
 	return tx.Commit()
 }
 
+func requeueGoal(db *sql.DB, id int64) error {
+	now := time.Now().UTC().Format(time.RFC3339)
+	tx, err := db.Begin()
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+
+	res, err := tx.Exec(
+		`UPDATE goals SET status = 'queued', retries = retries + 1, updated_at = ? WHERE id = ? AND status = 'stuck'`,
+		now, id,
+	)
+	if err != nil {
+		return err
+	}
+	n, err := res.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if n == 0 {
+		return sql.ErrNoRows
+	}
+
+	_, err = tx.Exec(
+		`INSERT INTO goal_transitions (goal_id, from_status, to_status) VALUES (?, 'stuck', 'queued')`,
+		id,
+	)
+	if err != nil {
+		return err
+	}
+	return tx.Commit()
+}
+
 func createComment(db *sql.DB, goalID int64, body string) (int64, error) {
 	res, err := db.Exec(
 		`INSERT INTO goal_comments (goal_id, body) VALUES (?, ?)`,
